@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tenjee Vault",
+  "version": "1.0.0",
+  "identifier": "com.sam.tenjee-vault",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Tenjee Vault",
+        "width": 1100,
+        "height": 720,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "copyright": "Copyright © 2026 Tenjee Vault Contributors",
+    "shortDescription": "Private, local-first notes, tasks, and calendar",
+    "longDescription": "Tenjee Vault keeps notes, tasks, calendar data, and backups on your device.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,170 @@
+// Keys are the original Chinese messages; call sites are checked against this catalog.
+export const uiEnglish = {
+  "删除列表": "Delete list", "此操作无法撤销。": "This cannot be undone.",
+  "收件箱是默认任务列表，用来暂存尚未分类的任务。": "Inbox is your default task list for tasks you have not organized yet.",
+  "完成任务：{p0}": "Complete task: {p0}",
+  "选择任务：{p0}": "Select task: {p0}",
+  "已选择 {p0} 项": "{p0} selected",
+  "退出选择": "Exit selection",
+  "批量选择": "Select tasks",
+  "保存": "Save",
+  "正在保存…": "Saving…",
+  "任务已创建，部分信息未保存。请重试保存以完成设置。": "The task was created, but some details were not saved. Retry Save to finish setting it up.",
+  "截止时间和重复任务需要先设置截止日期。": "Set a due date before adding a due time or recurrence.",
+  "请选择任务列表。": "Choose a task list.",
+  "请输入任务标题。": "Enter a task title.",
+  "时间使用本地时区；留空则不设置提醒。": "Times use your local timezone. Leave blank for no reminder.",
+  "重复规则": "Repeat rule",
+  "重复": "Repeat",
+  "提醒时间": "Reminder",
+  "截止时间": "Due time",
+  "截止日期": "Due date",
+  "优先级": "Priority",
+  "状态": "Status",
+  "补充背景、步骤或完成标准…": "Add context, steps, or a definition of done…",
+  "要完成什么？": "What needs to get done?",
+  "明确下一步，并为任务安排优先级和时间。": "Define the next step, then give it a priority and a place in your schedule.",
+  "创建任务": "Create task",
+  "新建子任务": "New subtask",
+  "新建任务": "New task",
+  "请输入列表名称。": "Enter a list name.",
+  "例如：工作项目": "For example: Work projects",
+  "按项目或生活领域整理任务，例如工作、个人或旅行。": "Organize tasks by project or area of life, such as work, personal, or travel.",
+  "自定义颜色": "Custom color",
+  "创建列表": "Create list",
+  "编辑列表": "Edit list",
+  "新建列表": "New list",
+  "标签与页面工具": "Tags & page tools", "空间": "Workspace", "全部锁定": "Lock all",
+  "让想法有处安放": "A little space for your ideas",
+  "在这里记录想法、整理计划，让重要的事井井有条。": "Capture a thought, make a plan, and keep what matters close.",
+  "选择笔记本，继续你的记录。": "Choose a notebook to pick up where you left off.",
+  "创建第一个笔记本，开始你的记录。": "Create your first notebook and make this space your own.",
+  "你的笔记本": "Your notebooks",
+
+  "小寒":"Minor Cold", "大寒":"Major Cold", "立春":"Start of Spring", "雨水":"Rain Water", "惊蛰":"Awakening of Insects", "春分":"Spring Equinox", "清明":"Qingming", "谷雨":"Grain Rain", "立夏":"Start of Summer", "小满":"Grain Buds", "芒种":"Grain in Ear", "夏至":"Summer Solstice", "小暑":"Minor Heat", "大暑":"Major Heat", "立秋":"Start of Autumn", "处暑":"End of Heat", "白露":"White Dew", "秋分":"Autumn Equinox", "寒露":"Cold Dew", "霜降":"Frost Descent", "立冬":"Start of Winter", "小雪":"Minor Snow", "大雪":"Major Snow", "冬至":"Winter Solstice",
+  "春节":"Spring Festival", "元宵节":"Lantern Festival", "端午节":"Dragon Boat Festival", "七夕节":"Qixi Festival", "中元节":"Ghost Festival", "中秋节":"Mid-Autumn Festival", "重阳节":"Double Ninth Festival", "腊八节":"Laba Festival", "除夕":"Lunar New Year’s Eve", "农历 {p0}/{p1}":"Lunar {p0}/{p1}", "闰":"Leap",
+  "星期一":"Mon", "星期二":"Tue", "星期三":"Wed", "星期四":"Thu", "星期五":"Fri", "星期六":"Sat", "星期日":"Sun",
+  "模块导航":"Module navigation",
+  "操作失败，请检查输入后重试。":"The operation failed. Check your input and retry.",
+  "数据库检查失败，请从有效备份恢复。":"Database verification failed. Restore a valid backup.",
+  "数据升级失败，原数据已保留。":"Data migration failed. Original data has been retained.",
+  "加密操作失败，请解锁分区后重试。":"Encryption operation failed. Unlock the section and retry.",
+  "未找到请求的项目。":"The requested item was not found.",
+  "文件操作失败，请检查路径、权限和可用磁盘空间。":"File operation failed. Check the path, permissions, and free disk space.",
+  "数据库操作失败，请重试或恢复备份。":"Database operation failed. Retry or restore a backup.",
+  "请先导出并删除或直接删除此分区的加密模板，再移除密码":"Export and delete this section’s encrypted templates, or delete them directly, before removing its password.",
+  "模板名称已存在，请使用其他名称。":"A template with this name already exists. Choose another name.",
+  "请先确认将模板导出为明文。":"Confirm plaintext template export first.",
+  "待办关联无效，请检查来源页面后重试。":"The todo link is unavailable. Check the source page and retry.",
+  "自动备份完成。":"Automatic backup completed.", "自动备份失败，请检查设置中的目录和可用空间。":"Automatic backup failed. Check its folder and available disk space in Settings.",
+  "任务提醒":"Task reminder", "日程提醒":"Calendar reminder", "Tenjee Vault 提醒":"Tenjee Vault reminder", "错过的提醒：{p0}":"Missed reminders: {p0}",
+  "没有可用的任务列表。":"No task list is available.",
+  "请先在笔记中创建一个分区。":"Create a section in Notes first.",
+  "快捷键冲突：{p0}":"Shortcut conflict: {p0}",
+  "选择自动备份目录":"Choose automatic backup folder",
+  "创建备份":"Create backup",
+  "Tenjee Vault 备份":"Tenjee Vault backup",
+  "无法读取所选备份路径。":"Cannot read the selected backup path.",
+  "目标已存在":"Destination already exists",
+  "目标已存在。确定覆盖它吗？":"The destination already exists. Replace it?",
+  "备份已验证：{p0} 个文件，创建于 {p1}。":"Backup verified: {p0} files, created {p1}.",
+  "备份未完成：{p0}":"Backup did not complete: {p0}",
+  "选择要恢复的备份":"Choose a backup to restore",
+  "无法读取所选恢复路径。":"Cannot read the selected restore path.",
+  "已通过预检：{p0} 个文件，应用版本 {p1}，创建于 {p2}。\n\n恢复将替换当前全部本地数据，并在下次启动时执行。当前数据会保留为恢复前副本。继续吗？":"Verification passed: {p0} files, app version {p1}, created {p2}.\n\nRestoring replaces all local data on next startup. Current data will be retained as a pre-restore copy. Continue?",
+  "备份已预检并准备恢复。加密会话已锁定；请安全退出并重新启动应用以完成恢复。":"Backup verified and ready to restore. Encrypted sessions are locked; quit and restart the app to complete restoration.",
+  "恢复预检失败：{p0}":"Restore verification failed: {p0}",
+  "删除所有受管理的恢复前副本？此操作无法撤销。":"Delete all managed pre-restore copies? This cannot be undone.",
+  "已删除 {p0} 个恢复前副本。":"Deleted {p0} pre-restore copies.",
+  "没有可清理的恢复前副本。":"No pre-restore copies to remove.",
+  "无法清理恢复前副本：{p0}":"Cannot remove pre-restore copies: {p0}",
+  "个文件，":"files,",
+  "自动备份":"Automatic backup",
+  "通知功能已就绪":"Notifications are ready",
+  "已取消日程导入。":"Calendar import cancelled.",
+  "遇到相同 UID 时：输入 update 更新既有事件，或 copy 创建副本。":"For matching UIDs, enter update to update existing events, or copy to create copies.",
+  "正在导入日程…":"Importing calendar…",
+  "；{p0} 条兼容性提示":"; {p0} compatibility notices",
+  "导入完成：新建 {p0}，更新 {p1}，副本 {p2}{p3}。":"Import complete: {p0} created, {p1} updated, {p2} copied{p3}.",
+  "日程导入失败：{p0}":"Calendar import failed: {p0}",
+  "已取消日程导出。":"Calendar export cancelled.",
+  "正在导出日程…":"Exporting calendar…",
+  "{p0}已导出。":"Exported {p0}.",
+  "日程导出失败：{p0}":"Calendar export failed: {p0}",
+  "导出全部日程的开始日期（农历重复必须有界）":"Start date for calendar export (lunar recurrence requires a bounded range)",
+  "导出全部日程的结束日期":"End date for calendar export",
+  "全部日程":"All events", "今天":"Today", "月":"Month", "周":"Week", "日":"Day", "议程":"Agenda", "搜索":"Search",
+  "导入 ICS":"Import ICS", "当前范围日程":"Events in current range", "导出范围":"Export range", "导出全部":"Export all", "农历":"Lunar dates", "节日":"Festivals", "节气":"Solar terms", "选定日程":"Selected event",
+  "一":"Mon", "二":"Tue", "三":"Wed", "四":"Thu", "五":"Fri", "六":"Sat",
+  "搜索事件标题与描述":"Search event titles and descriptions",
+  "编辑事件":"Edit event", "新建事件":"New event", "标题":"Title", "描述":"Description", "地点":"Location", "时区（默认系统本地）":"Time zone (system default)", "全天":"All day",
+  "不重复":"Does not repeat", "每日":"Daily", "每周":"Weekly", "每月":"Monthly", "每年":"Yearly", "重复间隔":"Repeat interval", "重复次数":"Occurrence count",
+  "提醒提前分钟，逗号分隔，如 10,1440":"Reminder minutes before, comma-separated, e.g. 10,1440",
+  "按农历每年重复":"Repeat annually by lunar calendar", "农历月":"Lunar month", "农历日":"Lunar day", "忽略闰月（平月庆祝）":"Ignore leap month (use regular month)", "仅闰月年份":"Leap-month years only",
+  "选择关联笔记":"Choose linked note", "选择关联任务":"Choose linked task", "打开关联笔记":"Open linked note", "关联笔记已失效":"Linked note is unavailable", "打开关联任务":"Open linked task", "关联任务已失效":"Linked task is unavailable",
+  "保存全部":"Save all", "导出此事件":"Export this event", "仅修改本次":"Change this occurrence", "取消本次":"Cancel this occurrence", "删除全部实例？":"Delete all occurrences?", "删除全部":"Delete all",
+  "跳转中…":"Opening…", "选择一个空间开始":"Choose a space to begin", "初始化失败":"Initialization failed",
+  "新建空间":"New space", "空间名称":"Space name", "＋空间":"＋Space", "重命名空间":"Rename space", "名称":"Name", "归档空间（数据保留）":"Archive space (keep data)", "归档":"Archive", "删除空间（库文件与附件一并移除）":"Delete space (including database and attachments)", "删除":"Delete",
+  "闲置":"Lock after", "分钟自动锁定":"idle minutes", "锁定全部加密分区":"Lock all encrypted sections", "🔒 全部锁定":"🔒 Lock all", "🕘 最近使用":"🕘 Recent", "🔍 搜索":"🔍 Search", "🗑 回收站":"🗑 Trash",
+  "笔记本":"Notebook", "暂无笔记本，去右侧创建":"No notebooks yet. Create one on the right.", "归档空间":"Archive space", "删除空间":"Delete space",
+  "归档「{p0}」？空间将从导航消失，数据保留、可恢复。":"Archive “{p0}”? It will leave navigation; data is retained and can be recovered.",
+  "删除「{p0}」？该空间的库文件与附件目录将一并移除，不可恢复。":"Delete “{p0}”? Its database and attachments will be permanently removed.",
+  "永久删除":"Delete permanently", "开始书写…（输入 [[ 插入页面链接）":"Start writing… (type [[ to link a page)", "笔记文件":"Note files",
+  "已取消导入。":"Import cancelled.", "正在导入…":"Importing…", "导入失败：{p0}":"Import failed: {p0}", "已取消导出。":"Export cancelled.", "导出失败：目标路径无效。":"Export failed: invalid destination path.", "正在导出…":"Exporting…",
+  "此导出会把加密页面写成明文文件。是否继续？":"This exports the encrypted page as plaintext. Continue?",
+  "已导出 {p0} 文件。":"Exported {p0} file.", "导出失败：{p0}":"Export failed: {p0}", "导出目录名称":"Export folder name", "正在导出分区…":"Exporting section…",
+  "此导出会把整个加密分区写成明文文件。是否继续？":"This exports the entire encrypted section as plaintext. Continue?",
+  "已导出分区 {p0} 文件。":"Exported section as {p0} files.", "分区导出失败：{p0}":"Section export failed: {p0}",
+  "加载页面失败：":"Could not load page: ", "该分区已锁定，内容不可见":"This section is locked; its content is hidden.", "加载中…":"Loading…", "页面标题":"Page title", "加密分区":"Encrypted section", "历史版本":"Version history", "导入":"Import", "导出":"Export", "打印":"Print", "导出分区":"Export section",
+  "导入完成：{p0} 成功，{p1} 跳过，{p2} 失败{p3}":"Import complete: {p0} succeeded, {p1} skipped, {p2} failed{p3}",
+  "解锁分区":"Unlock section", "版本历史":"Version history", "暂无历史版本":"No previous versions", "回滚到该版本？当前内容会作为新版本保留。":"Restore this version? Current content will be retained as a new version.", "回滚":"Restore version", "（空）":"(Empty)",
+  "正文":"Paragraph", "标题 1":"Heading 1", "标题 2":"Heading 2", "标题 3":"Heading 3", "高亮":"Highlight", "字体颜色":"Text color", "字号":"Font size", "• 列表":"• Bullet list", "1. 列表":"1. Numbered list", "☑ 待办":"☑ Checklist", "表格":"Table", "插入列":"Insert column", "+列":"+Column", "插入行":"Insert row", "+行":"+Row", "删除表格":"Delete table", "删表格":"Delete table", "✏️ 绘图":"✏️ Drawing", "📎 附件":"📎 Attachment",
+  "新建笔记本":"New notebook", "新建分区组":"New section group", "新建分区":"New section", "解锁":"Unlock", "锁定":"Lock", "更多":"More",
+  "操作：set=设置密码 change=修改密码 remove=移除密码 del=删除":"Action: set=set password, change=change password, remove=remove password, del=delete",
+  "新建子分区组":"New child section group", "＋组":"＋Group", "＋区":"＋Section", "重命名":"Rename", "重命名分区组":"Rename section group", "（无标题）":"(Untitled)", "新建子页面":"New child page", "重命名页面":"Rename page", "删除（进回收站）":"Move to trash", "选择笔记本":"Choose notebook", "重命名笔记本":"Rename notebook", "删除笔记本":"Delete notebook", "从左侧选择一个笔记本":"Choose a notebook on the left", "＋ 新建笔记本":"＋ New notebook", "页面":"Page", "＋页":"＋Page", "选择一个分区查看页面":"Choose a section to view pages", "暂无页面，点击 ＋页 创建":"No pages yet. Click ＋Page to create one.", "选择或新建一个页面开始书写":"Choose or create a page to start writing", "确认删除":"Confirm deletion",
+  "删除{p0}「{p1}」？{p2}":"Delete {p0} “{p1}”? {p2}", "分区组":"Section group", "分区":"Section", "页面将进入回收站，可恢复。":"The page will move to trash and can be restored.", "其中页面将进入回收站（容器本身不可恢复）。":"Its pages will move to trash; the container cannot be restored.",
+  "分区已锁定":"Section is locked", "取消":"Cancel", "确定":"OK", "输入分区密码":"Enter section password", "使用密码生成器":"Use password generator", "🎲 生成":"🎲 Generate",
+  "必须勾选确认「忘记密码则数据不可恢复」":"Confirm that data cannot be recovered if you forget the password.",
+  "设置分区密码":"Set section password", "分区加密后忘记密码将无法恢复数据，请牢记密码或使用密码管理器保存。":"If you forget the password, encrypted data cannot be recovered. Remember it or save it in a password manager.", "我已了解：忘记密码则该分区数据不可恢复":"I understand: this section cannot be recovered if I forget the password.", "加密中…":"Encrypting…", "确认设置":"Set password", "密码":"Password", "分区密码错误":"Incorrect section password", "修改分区密码":"Change section password", "移除分区密码":"Remove section password", "移除密码后分区数据将恢复为明文存储。":"Removing the password returns section data to plaintext storage.", "确认修改":"Confirm change", "确认移除":"Confirm removal",
+  "（图片不可读：附件缺失或分区已锁定）":"(Image unavailable: attachment missing or section locked)", "附件":"Attachment", "打开":"Open", "删除附件 {p0}？":"Delete attachment {p0}?", "点击继续编辑":"Click to continue editing", "细":"Thin", "中":"Medium", "粗":"Thick", "完成":"Done", "清空":"Clear", "删除块":"Delete block",
+  "回收站":"Trash", "回收站为空":"Trash is empty", "恢复":"Restore", "彻底删除":"Delete permanently", "彻底删除「{p0}」？页面及其版本数据将被物理移除，不可恢复。":"Permanently delete “{p0}”? The page and its versions will be removed and cannot be recovered.",
+  "最近使用":"Recent", "暂无最近使用的页面":"No recent pages", "输入关键词，回车搜索（支持中文）":"Enter keywords and press Enter to search", "全部笔记本":"All notebooks", "全部分区":"All sections", "条结果":"results", "（含已解锁加密分区）":"(including unlocked encrypted sections)",
+  "任务":"Tasks", "看板":"Board", "本周":"This week", "逾期":"Overdue", "任务列表":"Task lists", "列表名称":"List name", "输入 rename / color / delete":"Enter rename / color / delete", "新名称":"New name", "颜色":"Color", "删除「{p0}」及其中任务？":"Delete “{p0}” and its tasks?", "快速添加任务":"Quick add task", "添加":"Add", "移动到…":"Move to…", "子任务标题":"Subtask title", "待办":"To do", "进行中":"In progress", "彻底删除？":"Delete permanently?", "搜索标题与备注":"Search titles and notes", "含归档":"Include archived", "任务详情":"Task details", "无优先级":"No priority", "低":"Low", "高":"High", "RRULE，例如 FREQ=WEEKLY":"RRULE, e.g. FREQ=WEEKLY", "备注":"Notes", "删除任务？":"Delete task?"
+} as const;
+
+export type UIKey = keyof typeof uiEnglish;
+let locale = typeof navigator !== "undefined" && navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+const elements: { element: WeakRef<HTMLElement>; key: UIKey; attribute?: string }[] = [];
+export function localizeElement(element: HTMLElement, key: UIKey, attribute?: string) {
+  if (attribute) element.setAttribute(attribute,ui(key)); else element.textContent = ui(key);
+  elements.push({ element:new WeakRef(element), key, attribute });
+}
+export function setUILocale(next: string) {
+  if (next === locale) return;
+  locale = next;
+  for(let index=elements.length-1;index>=0;index--) {
+    const entry=elements[index],element=entry.element.deref();
+    if (!element) { elements.splice(index,1); continue; }
+    if (entry.attribute) element.setAttribute(entry.attribute,ui(entry.key)); else element.textContent=ui(entry.key);
+  }
+}
+export function getUILocale() { return locale; }
+export function ui(key: UIKey, params: Record<string,string|number> = {}): string {
+  return (locale === "zh-CN" ? key : uiEnglish[key]).replace(/\{(p\d+)\}/g,(whole,name:string) => String(params[name] ?? whole));
+}
+
+export function commandErrorCode(error: unknown): string | null {
+  try { const value = JSON.parse(String(error)); return typeof value.code === "string" ? value.code : null; } catch { return null; }
+}
+export function uiError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  let payload: { code: string; params?: [string,string][] };
+  try { payload = JSON.parse(String(error)); } catch { return ui("操作失败，请检查输入后重试。"); }
+  const detail = Object.fromEntries(payload.params ?? []).detail;
+  if (detail === "请先导出并删除或直接删除此分区的加密模板，再移除密码") return ui(detail);
+  if (detail === "A template with this name already exists") return ui("模板名称已存在，请使用其他名称。");
+  if (detail === "Confirm plaintext template export first") return ui("请先确认将模板导出为明文。");
+  if (detail === "Invalid or missing linked todo item") return ui("待办关联无效，请检查来源页面后重试。");
+  const messages: Record<string,UIKey> = { db_integrity:"数据库检查失败，请从有效备份恢复。",migration:"数据升级失败，原数据已保留。",crypto:"加密操作失败，请解锁分区后重试。",wrong_password:"分区密码错误",not_found:"未找到请求的项目。",section_locked:"分区已锁定",io:"文件操作失败，请检查路径、权限和可用磁盘空间。",sqlite:"数据库操作失败，请重试或恢复备份。" };
+  return ui(messages[payload.code] ?? "操作失败，请检查输入后重试。");
+}

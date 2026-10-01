@@ -1,0 +1,26 @@
+{
+  "platform": "linux",
+  "architecture": "x64",
+  "cold_start_ms": 977.426951,
+  "cold_start_samples_ms": [
+    977.426951,
+    485.4362379999998,
+    464.0464949999996
+  ],
+  "search_ms": 46.277962,
+  "search": {
+    "maximum_ms": 46.277962,
+    "metric": "aggregate_search",
+    "pages": 100000,
+    "passed": true,
+    "samples_ms": [
+      38.192032,
+      44.432763,
+      46.277962,
+      36.245086,
+      41.293277
+    ],
+    "threshold_ms": 300
+  },
+  "probe_directory": "/tmp/tenjee-release-probe-5o1Xt6"
+}

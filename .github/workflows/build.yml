@@ -1,0 +1,83 @@
+name: release-readiness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 Linux 系统依赖
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev xvfb libfuse2
+
+      - name: 安装锁定前端依赖
+        run: npm ci
+
+      - name: 前端类型检查、构建与测试
+        run: |
+          npm run build
+          npm test
+          node --test scripts/benchmark-thresholds.test.mjs scripts/verify-release-bundle.test.mjs
+
+      - name: Rust 检查与测试
+        working-directory: src-tauri
+        run: |
+          cargo check --locked
+          cargo test --locked
+
+      - name: 构建原生发布包
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --ci
+
+      - name: Build search benchmark
+        run: cargo build --locked --release --manifest-path src-tauri/Cargo.toml --example search_bench
+
+      - name: Installed startup and performance smoke
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a node scripts/install-smoke.mjs
+          else
+            node scripts/install-smoke.mjs
+          fi
+
+      - name: 验证产物元数据与离线前端
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            windows-latest) node scripts/verify-release-bundle.mjs win32 ;;
+            macos-latest) node scripts/verify-release-bundle.mjs darwin ;;
+            ubuntu-latest) node scripts/verify-release-bundle.mjs linux ;;
+          esac
+
+      - name: 保存安装包与验证报告
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenjee-vault-${{ matrix.platform }}
+          path: |
+            src-tauri/target/**/bundle/**
+            artifacts/**
+            !src-tauri/target/**/incremental/**
