@@ -9,13 +9,22 @@ import { flushPageSave } from "./pageSave";
 import { pagePath } from "./pageTree";
 import { TemplateDialog } from "./Templates";
 import { ConfirmDialog, SetPasswordDialog, UnlockDialog, ChangePasswordDialog } from "./dialogs";
+import { readViewState, writeViewState } from "../../shared/viewState";
 
 export default function PageSidebar() {
   const { pageId = "" } = useParams();
   const navigate = useNavigate();
   const { currentSpaceId, tree, unlocked, settings, loading, refreshTree } = useNotesStore();
   const spaceId = currentSpaceId ?? "";
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedBySpace, setExpandedBySpace] = useState<Record<string, string[]>>(() => readViewState("notes-expanded", {}));
+  const expanded = new Set(expandedBySpace[spaceId] ?? []);
+  function setExpanded(update: (previous: Set<string>) => Set<string>) {
+    setExpandedBySpace((all) => {
+      const next = { ...all, [spaceId]: [...update(new Set(all[spaceId] ?? []))] };
+      writeViewState("notes-expanded", next);
+      return next;
+    });
+  }
   const [target, setTarget] = useState<{ parent: string | null; domain: string } | null>(null);
   const [dialog, setDialog] = useState<{ kind: "protect" | "unlock" | "change" | "remove"; node: SpacePageNode } | null>(null);
   const [deleting, setDeleting] = useState<SpacePageNode | null>(null);
@@ -51,7 +60,7 @@ export default function PageSidebar() {
     void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(next.id)}`));
   }
 
-  useEffect(() => { setExpanded(new Set()); setTarget(null); setDialog(null); setDeleting(null); setError(""); }, [spaceId]);
+  useEffect(() => { setTarget(null); setDialog(null); setDeleting(null); setError(""); }, [spaceId]);
   useEffect(() => {
     const path = pagePath(nodes, pageId);
     setExpanded((previous) => new Set([...previous, ...path.slice(0, -1).map((node) => node.id)]));

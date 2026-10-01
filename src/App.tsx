@@ -18,6 +18,7 @@ import { api as notesApi } from "./modules/notes/api";
 import { taskApi } from "./modules/tasks/api";
 import { usePreferences } from "./i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { writeViewState } from "./shared/viewState";
 
 export default function App() {
   const { t } = usePreferences();
@@ -26,12 +27,20 @@ export default function App() {
   const [capture, setCapture] = useState<"note" | "task" | null>(null);
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(defaultShortcuts);
 
+  const lastModulePath = (name: string) => {
+    const fallback = `/${name}`;
+    try {
+      const saved = localStorage.getItem(`tenjee-vault:last-module-path:${name}`);
+      return saved?.startsWith(fallback) ? saved : fallback;
+    } catch { return fallback; }
+  };
+
   const runAction = useCallback((id: ActionId) => {
     if (id === "open-command-palette") return setPaletteOpen(true);
     if (id === "quick-note") return setCapture("note");
     if (id === "quick-task") return setCapture("task");
     if (id === "lock-all") { void flushPageSave().then(() => notesApi.lockAllSections()); return; }
-    const routes: Partial<Record<ActionId, string>> = { "go-notes": "#/notes", "go-tasks": "#/tasks", "go-calendar": "#/calendar", "go-settings": "#/settings" };
+    const routes: Partial<Record<ActionId, string>> = { "go-notes": `#${lastModulePath("notes")}`, "go-tasks": `#${lastModulePath("tasks")}`, "go-calendar": `#${lastModulePath("calendar")}`, "go-settings": "#/settings" };
     if (routes[id]) window.location.hash = routes[id]!;
   }, []);
 
@@ -76,6 +85,9 @@ export default function App() {
     }
     const onHashChange = () => setPath(window.location.hash.slice(1) || "/notes");
     window.addEventListener("hashchange", onHashChange);
+    writeViewState("last-path", path);
+    const currentModule = path.startsWith("/tasks") ? "tasks" : path.startsWith("/calendar") ? "calendar" : path.startsWith("/notes") ? "notes" : null;
+    if (currentModule) writeViewState(`last-module-path:${currentModule}`, path);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [path]);
 
@@ -93,8 +105,8 @@ export default function App() {
       <ReminderBanners />
       <BackupStatusBanners />
       <nav className="app-navigation" aria-label={ui("模块导航")}>
-        <a className="app-brand" href="#/notes"><span className="brand-mark">{t("app.mark")}</span><span>{t("app.name")}</span></a>
-        <div className="module-links">{navigation.map((item) => <a key={item.name} className={`module-link ${module === item.name ? "is-active" : ""}`} aria-current={module === item.name ? "page" : undefined} href={`#/${item.name}`}><Icon name={item.icon} /><span>{item.label}</span></a>)}</div>
+        <a className="app-brand" href={`#${lastModulePath("notes")}`}><span className="brand-mark">{t("app.mark")}</span><span>{t("app.name")}</span></a>
+        <div className="module-links">{navigation.map((item) => <a key={item.name} className={`module-link ${module === item.name ? "is-active" : ""}`} aria-current={module === item.name ? "page" : undefined} href={item.name === "notes" || item.name === "tasks" || item.name === "calendar" ? `#${lastModulePath(item.name)}` : `#/${item.name}`}><Icon name={item.icon} /><span>{item.label}</span></a>)}</div>
         <button className="command-trigger" onClick={() => setPaletteOpen(true)} title={t("command.label")}><Icon name="search" /><span>{t("nav.search")}</span></button>
       </nav>
       <div className={`module-content module-${module} min-h-0 flex-1`}>

@@ -6,8 +6,15 @@ import { addDays, formatDate, monthGrid, parseDate, usePointerDrag, weekDates } 
 import { api as notesApi } from "../notes/api";
 import { taskApi, Task, TaskNode } from "../tasks/api";
 import { calendarApi, DayInfo, EventInstance, LinkState, NewEvent, SearchHit, Settings } from "./api";
+import { readViewState, writeViewState } from "../../shared/viewState";
 
 type View = "month" | "week" | "day" | "agenda" | "search";
+function calendarViewState(): { view: View; anchor: string } {
+  const saved = readViewState<{ view?: View; anchor?: string }>("calendar-view", {});
+  const view = ["month", "week", "day", "agenda", "search"].includes(saved.view ?? "") ? saved.view! : "month";
+  const anchor = saved.anchor && /^\d{4}-\d{2}-\d{2}$/.test(saved.anchor) ? saved.anchor : today();
+  return { view, anchor };
+}
 
 function lunarLabel(day: DayInfo) {
   if (getUILocale() === "zh-CN") return day.lunar_day;
@@ -21,13 +28,14 @@ function overlayLabel(day?: DayInfo) {
 const today = () => formatDate(new Date());
 
 export function CalendarApp() {
-  const [view, setView] = useState<View>("month"); const [anchor, setAnchor] = useState(today());
+  const [view, setView] = useState<View>(() => calendarViewState().view); const [anchor, setAnchor] = useState(() => calendarViewState().anchor);
   const [events, setEvents] = useState<EventInstance[]>([]); const [overlay, setOverlay] = useState<DayInfo[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<Settings>({ lunar_overlay_enabled: true, festivals_enabled: true, solar_terms_enabled: true });
   const [editor, setEditor] = useState<{ initial: NewEvent; instance?: EventInstance } | null>(null);
   const [portabilityStatus, setPortabilityStatus] = useState("");
   const range = useMemo(() => viewRange(view, anchor), [view, anchor]);
+  useEffect(() => { writeViewState("calendar-view", { view, anchor }); }, [view, anchor]);
 
   async function refresh() {
     const [items, appSettings, lists] = await Promise.all([calendarApi.instances(range[0], range[1]), calendarApi.settings(), taskApi.lists()]);

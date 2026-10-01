@@ -8,8 +8,17 @@ import { usePointerDrag } from "../../shared";
 import { formatDate } from "../../shared/date";
 import { bytesToBase64, taskApi, Task, TaskList, TaskNode, TaskSearchHit, TaskStatus } from "./api";
 import { useTaskStore } from "./store";
+import { readViewState, writeViewState } from "../../shared/viewState";
 
 type View = "list" | "kanban" | "today" | "week" | "overdue" | "archive" | "search";
+type SavedTaskView = { view: View; filter: "active" | "all" | "completed"; query: string; includeArchived: boolean };
+const defaultTaskView: SavedTaskView = { view: "list", filter: "active", query: "", includeArchived: false };
+function loadTaskView(): SavedTaskView {
+  const saved = readViewState<Partial<SavedTaskView>>("tasks-view", {});
+  return { ...defaultTaskView, ...saved,
+    view: ["list", "kanban", "today", "week", "overdue", "archive", "search"].includes(saved.view ?? "") ? saved.view! : "list",
+    filter: ["active", "all", "completed"].includes(saved.filter ?? "") ? saved.filter! : "active" };
+}
 
 export function TasksApp() {
   const labels: Record<View, string> = { list: ui("任务"), kanban: ui("看板"), today: ui("今天"), week: ui("本周"), overdue: ui("逾期"), archive: ui("归档"), search: ui("搜索") };
@@ -20,13 +29,15 @@ export function TasksApp() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [actionError, setActionError] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
-  const [view, setView] = useState<View>("list");
+  const [savedView] = useState(loadTaskView);
+  const [view, setView] = useState<View>(savedView.view);
   const [quickTitle, setQuickTitle] = useState("");
   const [flatTasks, setFlatTasks] = useState<Task[]>([]);
   const [searchHits, setSearchHits] = useState<TaskSearchHit[]>([]);
-  const [query, setQuery] = useState("");
-  const [includeArchived, setIncludeArchived] = useState(false);
-  const [taskFilter, setTaskFilter] = useState<"active" | "all" | "completed">("active");
+  const [query, setQuery] = useState(savedView.query);
+  const [includeArchived, setIncludeArchived] = useState(savedView.includeArchived);
+  const [taskFilter, setTaskFilter] = useState<"active" | "all" | "completed">(savedView.filter);
+  useEffect(() => { writeViewState("tasks-view", { view, filter: taskFilter, query, includeArchived }); }, [view, taskFilter, query, includeArchived]);
   useEffect(() => { void (async () => {
     await store.loadLists();
     const taskId = new URLSearchParams((window.location.hash.split("?")[1] ?? "")).get("task");

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { taskApi, TaskList, TaskNode } from "./api";
+import { readViewState, writeViewState } from "../../shared/viewState";
 
 type State = {
   lists: TaskList[];
@@ -13,8 +14,10 @@ type State = {
   toggleSelected(id: string): void;
 };
 
+const savedSelection = readViewState<{ listId: string | null; taskId: string | null }>("tasks-selection", { listId: null, taskId: null });
+
 export const useTaskStore = create<State>((set, get) => ({
-  lists: [], selectedListId: null, tree: [], selectedTaskId: null, selected: new Set(),
+  lists: [], selectedListId: savedSelection.listId, tree: [], selectedTaskId: savedSelection.taskId, selected: new Set(),
   async loadLists() {
     const lists = await taskApi.lists();
     const selectedListId = get().selectedListId && lists.some((item) => item.id === get().selectedListId)
@@ -35,3 +38,7 @@ export const useTaskStore = create<State>((set, get) => ({
     set({ selected });
   },
 }));
+
+useTaskStore.subscribe((state) => {
+  writeViewState("tasks-selection", { listId: state.selectedListId, taskId: state.selectedTaskId });
+});
