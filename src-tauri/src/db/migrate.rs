@@ -104,6 +104,11 @@ impl DbKind {
                     name: "section_templates",
                     sql: include_str!("../../migrations/space/0003_section_templates.sql"),
                 },
+                Migration {
+                    version: 4,
+                    name: "page_tree",
+                    sql: include_str!("../../migrations/space/0004_page_tree.sql"),
+                },
             ],
         }
     }
@@ -657,7 +662,7 @@ mod tests {
             .unwrap();
         assert_eq!(before_fts, 1);
 
-        run_migrations(&mut conn, DbKind::Space.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Space.migrations()[..3]).unwrap();
         assert_eq!(current_version(&conn).unwrap(), 3);
         let page: String = conn
             .query_row("SELECT content FROM pages WHERE id = 'page-1'", [], |row| {

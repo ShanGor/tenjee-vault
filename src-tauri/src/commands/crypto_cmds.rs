@@ -118,7 +118,22 @@ pub fn remove_section_password_cmd(
     password: String,
 ) -> Result<(), VaultError> {
     state.inner.with_space(&space_id, |conn| {
-        sections_crypto::remove_password(conn, &state.inner.session, &section_id, &password)
+        let root: Option<String> = conn.query_row(
+            "SELECT root_page_id FROM sections WHERE id=?1",
+            [&section_id],
+            |r| r.get(0),
+        )?;
+        if root.is_some() {
+            crate::notes::page_tree::remove_protection(
+                conn,
+                &state.inner.files_dir(&space_id),
+                &state.inner.session,
+                &section_id,
+                &password,
+            )
+        } else {
+            sections_crypto::remove_password(conn, &state.inner.session, &section_id, &password)
+        }
     })
 }
 
@@ -148,4 +163,25 @@ pub fn generate_password_cmd(length: Option<usize>) -> Result<String, VaultError
     Ok(crate::crypto::password_gen::generate_password(
         length.unwrap_or(crate::crypto::password_gen::DEFAULT_LENGTH),
     ))
+}
+
+#[tauri::command]
+pub fn set_page_password_cmd(
+    state: State<'_, AppState>,
+    space_id: String,
+    page_id: String,
+    password: String,
+    confirm_irrecoverable: bool,
+) -> VaultResult<()> {
+    state.inner.with_space(&space_id, |conn| {
+        crate::notes::page_tree::protect(
+            conn,
+            &state.inner.files_dir(&space_id),
+            &state.inner.session,
+            &page_id,
+            &password,
+            confirm_irrecoverable,
+        )?;
+        super::notes::rebuild_indexes(&state.inner, conn)
+    })
 }

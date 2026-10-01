@@ -99,6 +99,75 @@ pub fn export_section(
         session.with_dsk(section_id, |_| Ok(()))?;
     }
     let tree = hierarchy::page_tree(conn, section_id)?;
+    export_tree(
+        conn, files_dir, session, &tree, format, directory, name, overwrite,
+    )
+}
+
+pub fn export_subtree(
+    conn: &Connection,
+    files_dir: &Path,
+    session: &SessionManager,
+    page_id: &str,
+    format: NoteExportFormat,
+    directory: &Path,
+    name: &str,
+    overwrite: bool,
+) -> VaultResult<()> {
+    fn convert(node: crate::notes::page_tree::Node) -> hierarchy::PageNode {
+        hierarchy::PageNode {
+            page: node.page,
+            children: node.children.into_iter().map(convert).collect(),
+        }
+    }
+    fn find(
+        nodes: Vec<crate::notes::page_tree::Node>,
+        id: &str,
+    ) -> Option<crate::notes::page_tree::Node> {
+        for node in nodes {
+            if node.page.id == id {
+                return Some(node);
+            }
+            if let Some(found) = find(node.children, id) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let root = find(crate::notes::page_tree::tree(conn)?, page_id)
+        .ok_or_else(|| VaultError::NotFound("Page".into()))?;
+    for id in crate::notes::page_tree::descendants(conn, page_id)? {
+        let live: bool =
+            conn.query_row("SELECT is_deleted=0 FROM pages WHERE id=?1", [&id], |r| {
+                r.get(0)
+            })?;
+        if live {
+            pages::get_page(conn, session, &id)?;
+        }
+    }
+    export_tree(
+        conn,
+        files_dir,
+        session,
+        &[convert(root)],
+        format,
+        directory,
+        name,
+        overwrite,
+    )
+}
+
+fn export_tree(
+    conn: &Connection,
+    files_dir: &Path,
+    session: &SessionManager,
+    tree: &[hierarchy::PageNode],
+    format: NoteExportFormat,
+    directory: &Path,
+    name: &str,
+    overwrite: bool,
+) -> VaultResult<()> {
+    let destination = SafeDestination::in_selected_directory(directory, name)?;
     let parent = destination
         .path()
         .parent()
@@ -130,9 +199,12 @@ fn write_page_export(
     overwrite: bool,
 ) -> VaultResult<()> {
     let page = pages::get_page(conn, session, page_id)?;
-    let tiptap = serde_json::from_str(&page.content).map_err(|error| {
-        VaultError::Validation(format!("页面内容不是有效 TipTap JSON: {error}"))
-    })?;
+    let tiptap = serde_json::from_str(if page.content.is_empty() {
+        r#"{"type":"doc","content":[{"type":"paragraph"}]}"#
+    } else {
+        &page.content
+    })
+    .map_err(|error| VaultError::Validation(format!("页面内容不是有效 TipTap JSON: {error}")))?;
     let mut document = super::document::PortableDocument::from_tiptap_json(&tiptap)?;
     let assets = publish_resources(
         conn,
@@ -177,9 +249,12 @@ fn write_section_page(
     paths: &HashMap<String, PathBuf>,
 ) -> VaultResult<()> {
     let page = pages::get_page(conn, session, page_id)?;
-    let tiptap = serde_json::from_str(&page.content).map_err(|error| {
-        VaultError::Validation(format!("页面内容不是有效 TipTap JSON: {error}"))
-    })?;
+    let tiptap = serde_json::from_str(if page.content.is_empty() {
+        r#"{"type":"doc","content":[{"type":"paragraph"}]}"#
+    } else {
+        &page.content
+    })
+    .map_err(|error| VaultError::Validation(format!("页面内容不是有效 TipTap JSON: {error}")))?;
     let mut document = super::document::PortableDocument::from_tiptap_json(&tiptap)?;
     rewrite_page_links(&mut document.blocks, output, paths)?;
     let parent = output

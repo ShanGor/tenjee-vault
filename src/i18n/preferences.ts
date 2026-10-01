@@ -1,18 +1,15 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "../modules/notes/api";
-import { setUILocale, uiError } from "./ui";
-import { invoke } from "@tauri-apps/api/core";
+import { createContext, useContext } from "react";
 
-const zhCN = {
+export const zhCN = {
   "app.name": "天机匣",
   "app.mark": "天",
-  "settings.security": "安全", "settings.calendar": "日历", "settings.reset": "恢复此组默认值", "settings.auto-lock": "闲置锁定（分钟）", "settings.clipboard": "剪贴板清除（秒，0 为关闭）", "settings.show-titles": "显示锁定分区标题", "settings.lunar": "显示农历", "settings.festivals": "显示节日", "settings.solar-terms": "显示节气", "settings.reset-groups": "恢复分组默认值", "settings.backup-group": "备份", "settings.appearance-group": "外观", "settings.shortcuts-group": "快捷键", "settings.desktop-group": "桌面",
-  "links.title": "待办关联任务", "links.create": "创建关联任务", "links.unlink": "解除关联", "links.open-task": "打开任务", "links.open-note": "打开来源笔记", "links.missing": "关联已失效", "links.locked": "来源分区已锁定，请先解锁",
+  "settings.security": "安全", "settings.calendar": "日历", "settings.reset": "恢复此组默认值", "settings.auto-lock": "闲置锁定（分钟）", "settings.clipboard": "剪贴板清除（秒，0 为关闭）", "settings.show-titles": "显示锁定页面标题", "settings.lunar": "显示农历", "settings.festivals": "显示节日", "settings.solar-terms": "显示节气", "settings.reset-groups": "恢复分组默认值", "settings.backup-group": "备份", "settings.appearance-group": "外观", "settings.shortcuts-group": "快捷键", "settings.desktop-group": "桌面",
+  "links.title": "待办关联任务", "links.create": "创建关联任务", "links.unlink": "解除关联", "links.open-task": "打开任务", "links.open-note": "打开来源笔记", "links.missing": "关联已失效", "links.locked": "来源页面已锁定，请先解锁",
   "templates.blank": "空白页面", "templates.meeting": "会议记录", "templates.journal": "日记", "templates.save": "保存为模板", "templates.name": "模板名称",
-  "templates.global-plaintext": "保存为全局明文模板", "templates.section-only": "仅在此加密分区解锁后可用。", "templates.plaintext-warning": "模板及其附件将以明文存储，可在其他分区使用。确定继续？",
-  "templates.create": "从模板新建页面", "templates.choose": "模板", "templates.untitled": "未命名页面", "templates.section": "加密分区", "templates.global": "全局",
+  "templates.global-plaintext": "保存为全局明文模板", "templates.section-only": "仅在此受保护页面解锁后可用。", "templates.plaintext-warning": "模板及其附件将以明文存储，可在其他页面使用。确定继续？",
+  "templates.create": "从模板新建页面", "templates.choose": "模板", "templates.untitled": "未命名页面", "templates.section": "受保护页面", "templates.global": "全局",
   "templates.manage": "管理自定义模板", "templates.delete": "删除模板", "templates.export": "导出为全局模板", "templates.delete-confirm": "删除此模板？已创建的页面不受影响。",
-  "templates.password-rule": "移除分区密码前，必须先导出并删除或直接删除分区模板。导出不会自动删除加密副本。",
+  "templates.password-rule": "移除页面密码前，必须先导出并删除或直接删除私有模板。导出不会自动删除加密副本。",
   "tags.title": "标签", "tags.new": "新标签名称", "tags.create": "创建并添加", "tags.browse": "查看所有标签", "tags.remove-missing": "移除失效标签",
   "tags.type": "类型", "tags.all": "全部类型", "tags.include-archived": "包含归档任务", "tags.rename": "重命名", "tags.delete": "删除标签",
   "tags.confirm-delete": "删除标签及其关联？页面、任务和事件会保留。", "tags.partial": "部分空间不可用，结果不完整。", "tags.archived": "已归档",
@@ -40,23 +37,23 @@ const zhCN = {
   "action.open-command-palette": "打开命令面板", "action.quick-note": "快速新建笔记",
   "action.quick-task": "快速新建任务", "action.go-notes": "前往笔记",
   "action.go-tasks": "前往任务", "action.go-calendar": "前往日程",
-  "action.go-settings": "打开设置", "action.lock-all": "锁定全部加密分区",
+  "action.go-settings": "打开设置", "action.lock-all": "锁定全部受保护页面",
   "error.db_integrity": "数据库完整性检查失败：{detail}", "error.migration": "数据迁移失败：{detail}",
-  "error.crypto": "加密操作失败：{detail}", "error.wrong_password": "分区密码错误",
-  "error.not_found": "未找到：{detail}", "error.section_locked": "分区已锁定：{section}",
+  "error.crypto": "加密操作失败：{detail}", "error.wrong_password": "页面密码错误",
+  "error.not_found": "未找到：{detail}", "error.section_locked": "页面已锁定：{section}",
   "error.validation": "输入无效：{detail}", "error.io": "文件操作失败：{detail}",
   "error.sqlite": "数据库操作失败：{detail}", "error.unknown": "发生未知错误",
 } as const;
-const en: { [K in keyof typeof zhCN]: string } = {
+export const en: { [K in keyof typeof zhCN]: string } = {
   "app.name": "Tenjee Vault",
   "app.mark": "T",
-  "settings.security": "Security", "settings.calendar": "Calendar", "settings.reset": "Reset this group", "settings.auto-lock": "Idle lock (minutes)", "settings.clipboard": "Clear clipboard (seconds; 0 disables)", "settings.show-titles": "Show locked section titles", "settings.lunar": "Show lunar dates", "settings.festivals": "Show festivals", "settings.solar-terms": "Show solar terms", "settings.reset-groups": "Restore group defaults", "settings.backup-group": "Backup", "settings.appearance-group": "Appearance", "settings.shortcuts-group": "Shortcuts", "settings.desktop-group": "Desktop",
-  "links.title": "Linked todo tasks", "links.create": "Create linked task", "links.unlink": "Unlink", "links.open-task": "Open task", "links.open-note": "Open source note", "links.missing": "Link no longer available", "links.locked": "Unlock the source section first",
+  "settings.security": "Security", "settings.calendar": "Calendar", "settings.reset": "Reset this group", "settings.auto-lock": "Idle lock (minutes)", "settings.clipboard": "Clear clipboard (seconds; 0 disables)", "settings.show-titles": "Show locked page titles", "settings.lunar": "Show lunar dates", "settings.festivals": "Show festivals", "settings.solar-terms": "Show solar terms", "settings.reset-groups": "Restore group defaults", "settings.backup-group": "Backup", "settings.appearance-group": "Appearance", "settings.shortcuts-group": "Shortcuts", "settings.desktop-group": "Desktop",
+  "links.title": "Linked todo tasks", "links.create": "Create linked task", "links.unlink": "Unlink", "links.open-task": "Open task", "links.open-note": "Open source note", "links.missing": "Link no longer available", "links.locked": "Unlock the source page first",
   "templates.blank": "Blank page", "templates.meeting": "Meeting notes", "templates.journal": "Journal", "templates.save": "Save as template", "templates.name": "Template name",
-  "templates.global-plaintext": "Save as a global plaintext template", "templates.section-only": "Available only while this encrypted section is unlocked.", "templates.plaintext-warning": "The template and its attachments will be stored in plaintext and available to other sections. Continue?",
-  "templates.create": "New page from template", "templates.choose": "Template", "templates.untitled": "Untitled page", "templates.section": "Encrypted section", "templates.global": "Global",
+  "templates.global-plaintext": "Save as a global plaintext template", "templates.section-only": "Available only while this protected page is unlocked.", "templates.plaintext-warning": "The template and its attachments will be stored in plaintext and available to other pages. Continue?",
+  "templates.create": "New page from template", "templates.choose": "Template", "templates.untitled": "Untitled page", "templates.section": "Protected page", "templates.global": "Global",
   "templates.manage": "Manage custom templates", "templates.delete": "Delete template", "templates.export": "Export as global template", "templates.delete-confirm": "Delete this template? Existing pages will be kept.",
-  "templates.password-rule": "Before removing a section password, export and delete its templates, or delete them directly. Exporting keeps the encrypted copy until you delete it.",
+  "templates.password-rule": "Before removing a page password, export and delete its templates, or delete them directly. Exporting keeps the encrypted copy until you delete it.",
   "tags.title": "Tags", "tags.new": "New tag name", "tags.create": "Create and add", "tags.browse": "Browse tags", "tags.remove-missing": "Remove missing tag",
   "tags.type": "Type", "tags.all": "All types", "tags.include-archived": "Include archived tasks", "tags.rename": "Rename", "tags.delete": "Delete tag",
   "tags.confirm-delete": "Delete this tag and its associations? Notes, tasks and events will be kept.", "tags.partial": "Some spaces are unavailable; results are incomplete.", "tags.archived": "Archived",
@@ -84,27 +81,27 @@ const en: { [K in keyof typeof zhCN]: string } = {
   "action.open-command-palette": "Open command palette", "action.quick-note": "Quick note",
   "action.quick-task": "Quick task", "action.go-notes": "Go to notes",
   "action.go-tasks": "Go to tasks", "action.go-calendar": "Go to calendar",
-  "action.go-settings": "Open settings", "action.lock-all": "Lock all encrypted sections",
+  "action.go-settings": "Open settings", "action.lock-all": "Lock all protected pages",
   "error.db_integrity": "Database integrity check failed: {detail}", "error.migration": "Data migration failed: {detail}",
-  "error.crypto": "Encryption operation failed: {detail}", "error.wrong_password": "Incorrect section password",
-  "error.not_found": "Not found: {detail}", "error.section_locked": "Section is locked: {section}",
+  "error.crypto": "Encryption operation failed: {detail}", "error.wrong_password": "Incorrect page password",
+  "error.not_found": "Not found: {detail}", "error.section_locked": "Page is locked: {section}",
   "error.validation": "Invalid input: {detail}", "error.io": "File operation failed: {detail}",
   "error.sqlite": "Database operation failed: {detail}", "error.unknown": "An unknown error occurred",
 };
 export type MessageKey = keyof typeof zhCN;
-type Locale = "system" | "zh-CN" | "en";
-type Theme = "system" | "light" | "dark";
+export type Locale = "system" | "zh-CN" | "en";
+export type Theme = "system" | "light" | "dark";
 export type MessageParams = Record<string, string | number>;
-type Preferences = { locale: Locale; theme: Theme; t(key: MessageKey, params?: MessageParams): string; formatError(error: unknown): string; setLocale(locale: Locale): Promise<void>; setTheme(theme: Theme): Promise<void> };
-const Context = createContext<Preferences | null>(null);
+export type Preferences = { locale: Locale; theme: Theme; t(key: MessageKey, params?: MessageParams): string; formatError(error: unknown): string; setLocale(locale: Locale): Promise<void>; setTheme(theme: Theme): Promise<void> };
+export const PreferencesContext = createContext<Preferences | null>(null);
 
-function format(template: string, params: MessageParams = {}) {
+export function format(template: string, params: MessageParams = {}) {
   return template.replace(/\{([a-z_]+)\}/g, (whole, name: string) => String(params[name] ?? whole));
 }
 
-function resolvedLocale(locale: Locale) { return locale === "system" ? (navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en") : locale; }
-function prefersDark() { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
-function cached(name: "locale" | "theme", fallback: Locale | Theme) {
+export function resolvedLocale(locale: Locale) { return locale === "system" ? (navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en") : locale; }
+export function prefersDark() { return window.matchMedia("(prefers-color-scheme: dark)").matches; }
+export function cached(name: "locale" | "theme", fallback: Locale | Theme) {
   try {
     const value = localStorage.getItem(`tenjee-vault-${name}`);
     return value ?? fallback;
@@ -119,42 +116,4 @@ export function bootstrapDocumentPreferences() {
   document.documentElement.classList.toggle("dark", theme === "dark" || (theme === "system" && prefersDark()));
 }
 
-export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(() => cached("locale", "system") as Locale);
-  const [theme, setThemeState] = useState<Theme>(() => cached("theme", "system") as Theme);
-  const actualLocale = resolvedLocale(locale);
-  setUILocale(actualLocale);
-  useEffect(() => { void invoke("set_runtime_locale", { locale: actualLocale }).catch(() => undefined); }, [actualLocale]);
-  const dark = theme === "dark" || (theme === "system" && prefersDark());
-  useEffect(() => { void api.getSettings().then((settings) => { setLocaleState(settings.app_locale); setThemeState(settings.app_theme); }).catch(() => undefined); }, []);
-  useEffect(() => {
-    const update = (event: Event) => {
-      const settings = (event as CustomEvent<{ app_locale: Locale; app_theme: Theme }>).detail;
-      setLocaleState(settings.app_locale); setThemeState(settings.app_theme);
-      try { localStorage.setItem("tenjee-vault-locale",settings.app_locale); localStorage.setItem("tenjee-vault-theme",settings.app_theme); } catch { /* optional browser cache */ }
-    };
-    window.addEventListener("preferences-changed",update);
-    return () => window.removeEventListener("preferences-changed",update);
-  }, []);
-  useEffect(() => {
-    document.documentElement.lang = actualLocale;
-    document.title = actualLocale === "zh-CN" ? "天机匣" : "Tenjee Vault";
-    document.documentElement.classList.toggle("dark", dark);
-    if (theme !== "system") return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => document.documentElement.classList.toggle("dark", media.matches);
-    media.addEventListener("change", update); return () => media.removeEventListener("change", update);
-  }, [actualLocale, dark, theme]);
-  const value = useMemo<Preferences>(() => {
-    const dictionary = actualLocale === "zh-CN" ? zhCN : en;
-    const t = (key: MessageKey, params?: MessageParams) => format(dictionary[key], params);
-    return {
-      locale, theme, t,
-      formatError: uiError,
-      setLocale: async (next) => { await api.setSetting("app_locale", next); setLocaleState(next); try { localStorage.setItem("tenjee-vault-locale", next); } catch { /* optional browser cache */ } },
-      setTheme: async (next) => { await api.setSetting("app_theme", next); setThemeState(next); try { localStorage.setItem("tenjee-vault-theme", next); } catch { /* optional browser cache */ } },
-    };
-  }, [actualLocale, locale, theme]);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
-}
-export function usePreferences() { const value = useContext(Context); if (!value) throw new Error("PreferencesProvider is required"); return value; }
+export function usePreferences() { const value = useContext(PreferencesContext); if (!value) throw new Error("PreferencesProvider is required"); return value; }

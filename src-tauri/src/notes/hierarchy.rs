@@ -655,7 +655,7 @@ fn build_group_node(
 /// 笔记本导航树（分区组任意嵌套）。
 pub fn notebook_tree(conn: &Connection) -> VaultResult<Vec<NotebookNode>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, color, sort_order FROM notebooks ORDER BY sort_order, created_at",
+        "SELECT id, name, color, sort_order FROM notebooks WHERE id != '__page_storage__' ORDER BY sort_order, created_at",
     )?;
     let notebooks = stmt
         .query_map([], row_notebook)?

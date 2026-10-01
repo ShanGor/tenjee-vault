@@ -3,9 +3,11 @@ import { ui, uiError } from "../../i18n/ui";
 // 图片/附件/绘图块、版本历史面板（tasks 5.1–5.6 / 7.1）。
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { Markdown } from "@tiptap/markdown";
+import { createMarkdownMode } from "./markdownMode";
 import TaskList from "@tiptap/extension-task-list";
 import { LinkedTaskItem } from "./LinkedTaskItem";
 import { Table } from "@tiptap/extension-table";
@@ -19,6 +21,8 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import { api, BatchResult, ImportedPage, LockedError, NoteExportFormat, Page, PageTitle, PageVersion, bytesToBase64 } from "./api";
+import { registerPageSave, flushPageSave } from "./pageSave";
+import { findPage, pagePath } from "./pageTree";
 import { useNotesStore } from "./store";
 import { AttachmentBlock, AttachmentImage, DrawingBlock, PageLink } from "./extensions";
 import { UnlockDialog } from "./dialogs";
@@ -30,6 +34,7 @@ import { NoteTasks } from "./NoteTasks";
 function buildEditorExtensions(spaceId: string) {
   return [
     StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+    Markdown,
     TaskList,
     LinkedTaskItem.configure({ nested: true }),
     Table.configure({ resizable: false }),
@@ -53,12 +58,23 @@ function buildEditorExtensions(spaceId: string) {
 }
 
 export default function EditorPage() {
-  const { spaceId = "", sectionId = "", pageId = "" } = useParams();
-  const { settings, isSectionLocked, refreshTree } = useNotesStore();
+  const { spaceId = "", pageId = "" } = useParams();
+  const navigate = useNavigate();
+  const tree = useNotesStore((s) => s.tree);
+  const node = findPage(tree?.pages ?? [], pageId);
+  const { settings, unlocked, isSectionLocked, refreshTree } = useNotesStore();
   const [page, setPage] = useState<Page | null>(null);
+  const sectionId = node?.section_id ?? "";
   const [loadError, setLoadError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [title, setTitle] = useState("");
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editorMode, setEditorMode] = useState<"rich" | "markdown">("rich");
+  const [markdownSource, setMarkdownSource] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [showVersions, setShowVersions] = useState(false);
   const [pageTitles, setPageTitles] = useState<PageTitle[]>([]);
   const [linkSuggest, setLinkSuggest] = useState<{ query: string; from: number } | null>(null);
@@ -67,29 +83,9 @@ export default function EditorPage() {
   const clipboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSave = useRef(true);
 
-  const section = useMemo(() => {
-    const tree = useNotesStore.getState().tree;
-    const find = (sections: { id: string }[]) => sections.find((s) => s.id === sectionId);
-    for (const nb of tree?.notebooks ?? []) {
-      const hit = find(nb.sections);
-      if (hit) return hit;
-      for (const g of nb.groups) {
-        const stack = [g];
-        while (stack.length) {
-          const cur = stack.pop()!;
-          const h = find(cur.sections);
-          if (h) return h;
-          stack.push(...cur.children);
-        }
-      }
-    }
-    return null;
-  }, [sectionId, useNotesStore((s) => s.tree)]);
-
-  const sectionLocked = isSectionLocked(
-    section ? { id: section.id, is_encrypted: (section as { is_encrypted?: boolean }).is_encrypted ?? false } : null,
-  );
-  const encryptedSection = (section as { is_encrypted?: boolean } | null)?.is_encrypted ?? false;
+  const sectionLocked = node ? isSectionLocked({ id: node.section_id, is_encrypted: node.is_encrypted }) : false;
+  const encryptedSection = node?.is_encrypted ?? false;
+  const breadcrumb = useMemo(() => pagePath(tree?.pages ?? [], pageId), [tree, pageId]);
 
   // 加载页面
   useEffect(() => {
@@ -97,7 +93,10 @@ export default function EditorPage() {
     setPage(null);
     setLoadError(null);
     setLocked(false);
+    setIsEditing(false);
     skipSave.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (sectionLocked) { setLocked(true); return; }
     api
       .getPage(spaceId, pageId)
       .then(async (p) => {
@@ -113,21 +112,35 @@ export default function EditorPage() {
       });
     return () => {
       cancelled = true;
+      if (saveTimer.current) {
+        void flushPageSave().catch(() => {});
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
     };
-  }, [spaceId, pageId]);
+  }, [spaceId, pageId, sectionLocked, sectionId]);
 
   // [[ 双链的页面候选
   useEffect(() => {
     if (!spaceId) return;
-    api.listPageTitles(spaceId).then(setPageTitles).catch(() => {});
-  }, [spaceId, sectionLocked]);
+    let cancelled=false;
+    setPageTitles([]);
+    api.listPageTitles(spaceId).then((titles) => { if (!cancelled) setPageTitles(titles); }).catch(() => {});
+    return () => { cancelled=true; };
+  }, [spaceId, sectionLocked, unlocked]);
 
   const editor = useEditor({
-    editable: !sectionLocked,
+    editable: isEditing && !sectionLocked,
     extensions: buildEditorExtensions(spaceId),
     content: "",
     editorProps: {
+      handleClickOn: (_view, _position, node, _nodePosition, _event, direct) => {
+        if (!direct || node.type.name !== "pageLink" || !node.attrs.pageId) return false;
+        void flushPageSave().then(() => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.attrs.pageId)}`));
+        return true;
+      },
       handlePaste: (_view, event) => {
+        if (!editor?.isEditable) return false;
         const files = event.clipboardData?.files;
         if (files && files.length > 0) {
           event.preventDefault();
@@ -138,6 +151,7 @@ export default function EditorPage() {
         return false;
       },
       handleDrop: (_view, event) => {
+        if (!editor?.isEditable) return false;
         const files = (event as DragEvent).dataTransfer?.files;
         if (files && files.length > 0) {
           event.preventDefault();
@@ -149,11 +163,12 @@ export default function EditorPage() {
       attributes: { class: "prose-editor" },
     },
     onUpdate: ({ editor }) => {
-      if (skipSave.current) return;
+      if (skipSave.current || !editor.isEditable) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
         api
-          .savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()))
+          .savePage(spaceId, pageId, titleRef.current, JSON.stringify(editor.getJSON()))
           .catch(() => {});
       }, 1000);
       detectLinkTrigger(editor);
@@ -163,9 +178,48 @@ export default function EditorPage() {
     },
   });
 
+  const markdownMode = useMemo(() => editor?.markdown ? createMarkdownMode(editor.markdown) : null, [editor]);
+
+  function changeEditorMode(mode: "rich" | "markdown") {
+    if (!editor || !markdownMode || mode === editorMode) return;
+    // Commit pending drawing strokes before generating source references.
+    editor.view.dom.querySelectorAll<HTMLButtonElement>("[data-save-drawing]").forEach((button) => button.click());
+    if (mode === "markdown") setMarkdownSource(markdownMode.serialize(editor.getJSON()));
+    setLinkSuggest(null);
+    setEditorMode(mode);
+  }
+
+  function updateMarkdown(source: string) {
+    if (!editor || !markdownMode) return;
+    setMarkdownSource(source);
+    // Keep the canonical JSON current for autosave, navigation, export and templates.
+    editor.commands.setContent(markdownMode.parse(source));
+  }
+
+  useEffect(() => {
+    const previousSkipSave = skipSave.current;
+    skipSave.current = true;
+    editor?.setEditable(isEditing && !sectionLocked);
+    skipSave.current = previousSkipSave;
+    if (!isEditing || sectionLocked) setLinkSuggest(null);
+  }, [editor, isEditing, sectionLocked]);
+
+  useEffect(() => {
+    if (!editor || !page || sectionLocked || !isEditing) return;
+    return registerPageSave(async () => {
+      if (skipSave.current || !editor.isEditable) return;
+      const content = JSON.stringify(editor.getJSON());
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      if (title !== page.title || content !== page.content) {
+        await api.savePage(spaceId, pageId, title, content);
+      }
+    });
+  }, [editor, page, sectionLocked, isEditing, spaceId, pageId, title]);
+
   // 图片/文件粘贴与拖入
   async function handlePasteFiles(files: Iterable<File>) {
-    if (!editor) return;
+    if (!editor?.isEditable) return;
     for (const file of files) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const attachment = await api.saveAttachment(
@@ -176,6 +230,7 @@ export default function EditorPage() {
         file.type || null,
         bytesToBase64(bytes),
       );
+      if (!editor.isEditable || editor.isDestroyed) return;
       if (file.type.startsWith("image/")) {
         editor.chain().focus().setImage({ src: `attachment://${attachment.id}`, attachmentId: attachment.id } as never).run();
       } else {
@@ -209,12 +264,13 @@ export default function EditorPage() {
       doc = page.content ? { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: page.content }] }] } : undefined;
     }
     editor.commands.setContent(doc ?? { type: "doc", content: [{ type: "paragraph" }] });
+    if (markdownMode && editorMode === "markdown") setMarkdownSource(markdownMode.serialize(editor.getJSON()));
     skipSave.current = false;
-  }, [editor, page]);
+  }, [editor, page, markdownMode]);
 
   // [[ 触发检测：光标前存在未闭合的 [[
-  function detectLinkTrigger(ed: { state: any; view: any }) {
-    if (!ed) return;
+  function detectLinkTrigger(ed: { state: any; view: any; isEditable: boolean }) {
+    if (!ed?.isEditable) { setLinkSuggest(null); return; }
     const { state } = ed;
     const { $from } = state.selection;
     const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "\ufffc");
@@ -231,7 +287,7 @@ export default function EditorPage() {
   }
 
   function applyPageLink(target: PageTitle) {
-    if (!editor || !linkSuggest) return;
+    if (!editor?.isEditable || !linkSuggest) return;
     editor
       .chain()
       .focus()
@@ -242,20 +298,43 @@ export default function EditorPage() {
   }
 
   async function commitTitle() {
-    if (!page || title === page.title || !title.trim()) return;
-    await api.renamePage(spaceId, pageId, title.trim());
-    setPage({ ...page, title: title.trim() });
-    refreshTree();
+    if (!editor?.isEditable || !page || title === page.title || !title.trim()) return;
+    try {
+      await flushPageSave();
+      await refreshTree();
+    } catch (error) { setEditError(uiError(error)); }
   }
 
   async function rollback(versionId: string) {
+    if (!editor?.isEditable) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
     await api.rollbackVersion(spaceId, pageId, versionId);
     const p = await api.getPage(spaceId, pageId);
     setPage(p);
+    setTitle(p.title);
+    await refreshTree();
+  }
+
+  async function finishEditing() {
+    if (!editor || isSaving) return;
+    setIsSaving(true);
+    setEditError(null);
+    try {
+      // Commit strokes still in a drawing canvas before saving the document.
+      editor.view.dom.querySelectorAll<HTMLButtonElement>("[data-save-drawing]").forEach((button) => button.click());
+      await flushPageSave();
+      const saved = await api.getPage(spaceId, pageId);
+      setIsEditing(false);
+      setPage(saved);
+      setTitle(saved.title);
+      await refreshTree();
+    } catch (error) { setEditError(uiError(error)); }
+    finally { setIsSaving(false); }
   }
 
   async function pickAttachmentFile() {
-    if (!editor) return;
+    if (!editor?.isEditable) return;
     const input = document.createElement("input");
     input.type = "file";
     input.onchange = async () => {
@@ -267,12 +346,13 @@ export default function EditorPage() {
   }
 
   async function importFiles() {
+    if (!editor?.isEditable) return;
     const selected = await open({ multiple: true, filters: [{ name: ui("笔记文件"), extensions: ["md", "markdown", "html", "htm", "txt"] }] });
     const paths = typeof selected === "string" ? [selected] : selected ?? [];
     if (paths.length === 0) { setPortableStatus(ui("已取消导入。")); return; }
     setPortableStatus(ui("正在导入…"));
     try {
-      const result = await api.importNoteFiles(spaceId, sectionId, paths);
+      const result = await api.importNoteFiles(spaceId, sectionId, paths, pageId);
       setPortableStatus(describeImportResult(result));
       await refreshTree();
     } catch (error) { setPortableStatus(ui("导入失败：{p0}", { p0: String(uiError(error)) })); }
@@ -286,6 +366,7 @@ export default function EditorPage() {
     if (!destination) { setPortableStatus(ui("导出失败：目标路径无效。")); return; }
     setPortableStatus(ui("正在导出…"));
     try {
+      await flushPageSave();
       let confirmationToken: string | undefined;
       if (encryptedSection) {
         if (!window.confirm(ui("此导出会把加密页面写成明文文件。是否继续？"))) { setPortableStatus(ui("已取消导出。")); return; }
@@ -296,22 +377,23 @@ export default function EditorPage() {
     } catch (error) { setPortableStatus(ui("导出失败：{p0}", { p0: String(uiError(error)) })); }
   }
 
-  async function exportCurrentSection(format: NoteExportFormat) {
+  async function exportCurrentSubtree(format: NoteExportFormat) {
     const selected = await open({ directory: true, multiple: false });
     const directory = typeof selected === "string" ? selected : null;
     if (!directory) { setPortableStatus(ui("已取消导出。")); return; }
-    const name = window.prompt(ui("导出目录名称"), `${(section as { name?: string } | null)?.name || "section"}-${format}`)?.trim();
+    const name = window.prompt(ui("导出目录名称"), `${title || "pages"}-${format}`)?.trim();
     if (!name) { setPortableStatus(ui("已取消导出。")); return; }
-    setPortableStatus(ui("正在导出分区…"));
+    setPortableStatus(ui("正在导出页面树…"));
     try {
+      await flushPageSave();
       let confirmationToken: string | undefined;
-      if (encryptedSection) {
-        if (!window.confirm(ui("此导出会把整个加密分区写成明文文件。是否继续？"))) { setPortableStatus(ui("已取消导出。")); return; }
-        confirmationToken = await api.requestSectionExportConfirmation(spaceId, sectionId, format, directory, name);
+      if (hasProtectedChildren(node)) {
+        if (!window.confirm(ui("此导出会把受保护页面写成明文文件。是否继续？"))) { setPortableStatus(ui("已取消导出。")); return; }
+        confirmationToken = await api.requestSubtreeExportConfirmation(spaceId, pageId, format, directory, name);
       }
-      await api.exportSection(spaceId, sectionId, format, directory, name, false, confirmationToken);
-      setPortableStatus(ui("已导出分区 {p0} 文件。", { p0: String(format.toUpperCase()) }));
-    } catch (error) { setPortableStatus(ui("分区导出失败：{p0}", { p0: String(uiError(error)) })); }
+      await api.exportSubtree(spaceId, pageId, format, directory, name, false, confirmationToken);
+      setPortableStatus(ui("已导出页面树 {p0} 文件。", { p0: String(format.toUpperCase()) }));
+    } catch (error) { setPortableStatus(ui("页面树导出失败：{p0}", { p0: String(uiError(error)) })); }
   }
 
   function printCurrentPage() {
@@ -330,11 +412,13 @@ export default function EditorPage() {
     return <div className="p-8 text-red-600">{ui("加载页面失败：")}{loadError}</div>;
   }
 
-  if (locked || (sectionLocked && !page)) {
+  if (!node && !loadError) return <div className="p-8 text-neutral-400">{ui("加载中…")}</div>;
+
+  if (locked || sectionLocked) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8">
         <span className="text-4xl">🔒</span>
-        <p className="text-neutral-500">{ui("该分区已锁定，内容不可见")}</p>
+        <p className="text-neutral-500">{ui("该页面已锁定，内容不可见")}</p>
         <UnlockDialogOpener spaceId={spaceId} sectionId={sectionId} />
       </div>
     );
@@ -349,48 +433,65 @@ export default function EditorPage() {
     : [];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="page-editor flex min-h-0 min-w-0 flex-1 flex-col" data-editing={isEditing}>
+      <nav className="page-breadcrumbs" aria-label={ui("页面路径")}>
+        <button onClick={() => void flushPageSave().then(() => navigate(`/s/${spaceId}`))}>{ui("空间")}</button>
+        {breadcrumb.map((item) => <span key={item.id}> / <button onClick={() => void flushPageSave().then(() => navigate(`/s/${spaceId}/page/${encodeURIComponent(item.id)}`))}>{item.title}</button></span>)}
+      </nav>
       {/* 标题 */}
-      <div className="editor-heading flex flex-wrap items-center gap-2 border-b px-4 py-2">
-        <input
+      <div className="editor-heading flex shrink-0 flex-wrap items-center gap-2 border-b">
+        {isEditing ? <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={commitTitle}
           placeholder={ui("页面标题")}
-          disabled={sectionLocked}
+          disabled={sectionLocked || isSaving}
           className="min-w-0 flex-1 bg-transparent text-xl font-bold outline-none"
-        />
-        {encryptedSection && <span title={ui("加密分区")}>{sectionLocked ? "🔒" : "🔓"}</span>}
+        /> : <h1 className="min-w-0 flex-1 break-words text-xl font-bold">{title || ui("页面标题")}</h1>}
+        <button className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={isSaving}
+          onClick={() => { if (isEditing) void finishEditing(); else { setEditError(null); setIsEditing(true); } }}>
+          {isSaving ? ui("正在保存…") : isEditing ? ui("完成编辑") : ui("编辑")}
+        </button>
+        {encryptedSection && <span title={ui("受保护页面")}>{sectionLocked ? "🔒" : "🔓"}</span>}
         <details className="action-menu"><summary>{ui("更多")}</summary><div className="action-menu-panel">
         <button className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => setShowVersions((v) => !v)}>{ui("历史版本")}</button>
-        <button className="shrink-0 rounded border px-2 py-1 text-sm" disabled={sectionLocked} onClick={importFiles}>{ui("导入")}</button>
+        <button className="shrink-0 rounded border px-2 py-1 text-sm" disabled={!isEditing || isSaving} onClick={importFiles}>{ui("导入")}</button>
         {(["markdown", "html", "pdf"] as NoteExportFormat[]).map((format) => (
           <button key={format} className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => exportCurrentPage(format)}>{ui("导出")}{format === "markdown" ? "MD" : format.toUpperCase()}</button>
         ))}
         <button className="shrink-0 rounded border px-2 py-1 text-sm" onClick={printCurrentPage}>{ui("打印")}</button>
         {(["markdown", "html", "pdf"] as NoteExportFormat[]).map((format) => (
-          <button key={`section-${format}`} className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => exportCurrentSection(format)}>{ui("导出分区")}{format === "markdown" ? "MD" : format.toUpperCase()}</button>
+          <button key={`section-${format}`} className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => exportCurrentSubtree(format)}>{ui("导出页面树")}{format === "markdown" ? "MD" : format.toUpperCase()}</button>
         ))}
         </div></details>
       </div>
 
+      {editError && <div role="alert" className="border-b px-4 py-2 text-sm text-red-600">{ui("保存失败：{p0}", { p0: editError })}</div>}
       {portableStatus && <div role="status" className="border-b bg-blue-50 px-4 py-2 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100">{portableStatus}</div>}
-      <details className="document-metadata"><summary>{ui("标签与页面工具")}</summary>
+      {isEditing && <div className="page-mode-switch flex items-center gap-2 border-b px-4 py-2" role="group" aria-label={ui("编辑模式")}>
+        <button className="rounded border px-3 py-1 text-sm" aria-pressed={editorMode === "rich"} disabled={isSaving} onClick={() => changeEditorMode("rich")}>{ui("富文本")}</button>
+        <button className="rounded border px-3 py-1 text-sm" aria-pressed={editorMode === "markdown"} disabled={isSaving} onClick={() => changeEditorMode("markdown")}>Markdown</button>
+      </div>}
+      {isEditing && <details className="document-metadata" inert={isSaving}><summary>{ui("标签与页面工具")}</summary>
       {!sectionLocked && <TagSelector key={pageId} kind="page" id={pageId} spaceId={spaceId} />}
       {!sectionLocked && <SaveTemplateButton key={pageId} spaceId={spaceId} pageId={pageId} encrypted={!!encryptedSection} beforeSave={() => api.savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()))} />}
-      {!sectionLocked && <NoteTasks key={pageId} editor={editor} spaceId={spaceId} pageId={pageId} beforeSave={async () => {
+      {!sectionLocked && editorMode === "rich" && <NoteTasks key={pageId} editor={editor} spaceId={spaceId} pageId={pageId} beforeSave={async () => {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         await api.savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()));
       }} refreshPage={async () => setPage(await api.getPage(spaceId, pageId))} />}
-      </details>
+      </details>}
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative min-w-0 flex-1 overflow-y-auto" data-print-document>
-          <Toolbar editor={editor} onPickAttachment={pickAttachmentFile} disabled={sectionLocked} />
-          <EditorContent editor={editor} className="mx-auto max-w-3xl px-6 py-4" />
+        <div className="relative min-w-0 flex-1 overflow-y-auto" data-print-document inert={isSaving}>
+          {isEditing && editorMode === "rich" && <Toolbar editor={editor} onPickAttachment={pickAttachmentFile} disabled={sectionLocked || isSaving} />}
+          {isEditing && editorMode === "markdown" && <div className="page-document-content page-markdown-content">
+            <p className="mb-3 text-xs text-neutral-500">{ui("附件、绘图和特殊格式以引用保留；保留引用即可保留原内容。")}</p>
+            <textarea className="markdown-source" aria-label={ui("Markdown 源码")} value={markdownSource} onChange={(event) => updateMarkdown(event.target.value)} onPaste={scheduleClipboardClear} spellCheck={false} />
+          </div>}
+          <div hidden={isEditing && editorMode === "markdown"} className="page-rich-content"><EditorContent editor={editor} className="page-document-content" /></div>
 
           {/* [[ 页面选择弹层 */}
-          {linkSuggest && suggestItems.length > 0 && (
+          {editorMode === "rich" && linkSuggest && suggestItems.length > 0 && (
             <div className="absolute left-8 top-20 z-30 w-72 rounded border bg-white shadow-lg dark:bg-neutral-800">
               {suggestItems.map((t) => (
                 <button
@@ -409,11 +510,15 @@ export default function EditorPage() {
         </div>
 
         {showVersions && (
-          <VersionsPanel spaceId={spaceId} pageId={pageId} current={page} onRollback={rollback} />
+          <VersionsPanel spaceId={spaceId} pageId={pageId} current={page} canRestore={isEditing && !isSaving} onRollback={rollback} />
         )}
       </div>
     </div>
   );
+}
+
+function hasProtectedChildren(node: import("./api").SpacePageNode | null): boolean {
+  return !!node && (node.is_encrypted || node.children.some(hasProtectedChildren));
 }
 
 function splitExportPath(path: string): { directory: string; filename: string } | null {
@@ -434,7 +539,7 @@ function UnlockDialogOpener({ spaceId, sectionId }: { spaceId: string; sectionId
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={() => setOpen(true)}>{ui("解锁分区")}</button>
+      <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={() => setOpen(true)}>{ui("解锁页面")}</button>
       {open && <UnlockDialog spaceId={spaceId} sectionId={sectionId} onClose={() => setOpen(false)} />}
     </>
   );
@@ -446,10 +551,12 @@ function VersionsPanel({
   pageId,
   current,
   onRollback,
+  canRestore,
 }: {
   spaceId: string;
   pageId: string;
   current: Page;
+  canRestore: boolean;
   onRollback: (versionId: string) => void;
 }) {
   const [versions, setVersions] = useState<PageVersion[] | null>(null);
@@ -468,7 +575,8 @@ function VersionsPanel({
             <div className="mb-1 flex items-center justify-between">
               <span className="text-neutral-500">{v.created_at}</span>
               <button
-                className="rounded border px-2 py-0.5 text-xs"
+                className="rounded border px-2 py-0.5 text-xs disabled:opacity-40"
+                disabled={!canRestore}
                 onClick={() => window.confirm(ui("回滚到该版本？当前内容会作为新版本保留。")) && onRollback(v.id)}
               >{ui("回滚")}</button>
             </div>
@@ -513,7 +621,7 @@ function Toolbar({
   const chain = () => editor?.chain().focus();
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-b px-4 py-1.5">
+    <div className="page-formatting-toolbar flex flex-wrap items-center gap-1 border-b">
       <select
         className={btn}
         disabled={disabled}

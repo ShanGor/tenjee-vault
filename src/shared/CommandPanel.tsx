@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { ACTIONS, type ActionId } from "./actions";
 import { usePreferences } from "../i18n";
@@ -38,6 +39,11 @@ export function CommandPanel({ open, onClose, onAction }: { open: boolean; onClo
     }, 120);
     return () => window.clearTimeout(timer);
   }, [open, query]);
+
+  useEffect(() => {
+    const subscription = listen("section-locked", () => { ++requestId.current; setHits([]); });
+    return () => { void subscription.then((dispose) => dispose()); };
+  }, []);
 
   useEffect(() => setActive((value) => Math.min(value, Math.max(0, rows.length - 1))), [query, hits.length, rows.length]);
   if (!open) return null;

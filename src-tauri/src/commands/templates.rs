@@ -152,7 +152,9 @@ pub fn instantiate(inner: &AppStateInner, space_id: &str, section_id: &str, pare
         let mut created_hashes = Vec::new();
         let result = (|| {
         let transaction = conn.unchecked_transaction()?;
-        let page = hierarchy::create_page(&transaction, section_id, parent, title)?;
+        let mut page = hierarchy::create_page(&transaction, section_id, parent, title)?;
+        page.sort_order=transaction.query_row("SELECT COALESCE(MAX(sort_order),-1)+1 FROM pages WHERE parent_page_id IS ?1 AND id!=?2 AND is_deleted=0",params![parent,page.id],|r|r.get(0))?;
+        transaction.execute("UPDATE pages SET sort_order=?1 WHERE id=?2",params![page.sort_order,page.id])?;
         let mut ids = BTreeMap::new();
         for (old_id, resource) in &payload.resources {
             let attachment = attachments::save_attachment(&inner.files_dir(space_id), &transaction, &inner.session, section_id, "page", &page.id, &resource.name, resource.mime.as_deref(), &notes::base64_decode(&resource.data)?)?;
@@ -195,7 +197,13 @@ pub fn edit_template(state: State<'_,AppState>, space_id: String, section_id: St
 #[tauri::command]
 pub fn export_template_global(state: State<'_,AppState>, space_id: String, section_id: String, id: String, name: String, confirmed: bool) -> VaultResult<String> { export_global(&state.inner,&space_id,&section_id,&id,&name,confirmed) }
 #[tauri::command]
-pub fn create_page_from_template(state: State<'_,AppState>, space_id: String, section_id: String, parent_page_id: Option<String>, title: String, id: String, scope: String, builtin: Option<Value>) -> VaultResult<hierarchy::PageSummary> { instantiate(&state.inner,&space_id,&section_id,parent_page_id.as_deref(),&title,&id,&scope,builtin) }
+pub fn create_page_from_template(state: State<'_,AppState>, space_id: String, section_id: String, parent_page_id: Option<String>, title: String, id: String, scope: String, builtin: Option<Value>) -> VaultResult<hierarchy::PageSummary> {
+    let _ = section_id;
+    let domain = state.inner.with_space(&space_id, |conn| notes::page_tree::target_domain(conn,&state.inner.session,parent_page_id.as_deref()))?;
+    let page = instantiate(&state.inner,&space_id,&domain,parent_page_id.as_deref(),&title,&id,&scope,builtin)?;
+    state.inner.with_space(&space_id, |conn| super::notes::refresh_page_index(&state.inner,conn,&page.id))?;
+    Ok(page)
+}
 
 #[cfg(test)]
 mod tests {

@@ -3,6 +3,7 @@ import { ui, uiError } from "../../i18n/ui";
 
 import { FormEvent, ReactNode, useState } from "react";
 import { api } from "./api";
+import { flushPageSave } from "./pageSave";
 import { useNotesStore } from "./store";
 
 export function Modal({
@@ -32,26 +33,16 @@ export function Modal({
   );
 }
 
-export function usePrompt() {
-  const [state, setState] = useState<{
-    title: string;
-    label: string;
-    initial?: string;
-    resolve?: (value: string | null) => void;
-  } | null>(null);
-
-  const prompt = (title: string, label: string, initial = "") =>
-    new Promise<string | null>((resolve) =>
-      setState({ title, label, initial, resolve }),
-    );
-
-  const element = state ? (
+export function PromptDialog({ title, label, initial, onResolve }: {
+  title: string;
+  label: string;
+  initial?: string;
+  onResolve: (value: string | null) => void;
+}) {
+  return (
     <Modal
-      title={state.title}
-      onClose={() => {
-        state.resolve?.(null);
-        setState(null);
-      }}
+      title={title}
+      onClose={() => onResolve(null)}
     >
       <form
         onSubmit={(e: FormEvent) => {
@@ -59,15 +50,14 @@ export function usePrompt() {
           const input = (e.target as HTMLFormElement).elements.namedItem(
             "prompt-input",
           ) as HTMLInputElement;
-          state.resolve?.(input.value);
-          setState(null);
+          onResolve(input.value);
         }}
       >
-        <label className="mb-2 block text-sm">{state.label}</label>
+        <label className="mb-2 block text-sm">{label}</label>
         <input
           id="prompt-input"
           name="prompt-input"
-          defaultValue={state.initial}
+          defaultValue={initial}
           autoFocus
           className="mb-3 w-full rounded border px-2 py-1 dark:bg-neutral-900"
         />
@@ -75,18 +65,13 @@ export function usePrompt() {
           <button
             type="button"
             className="rounded border px-3 py-1"
-            onClick={() => {
-              state.resolve?.(null);
-              setState(null);
-            }}
+            onClick={() => onResolve(null)}
           >{ui("取消")}</button>
           <button type="submit" className="rounded bg-blue-600 px-3 py-1 text-white">{ui("确定")}</button>
         </div>
       </form>
     </Modal>
-  ) : null;
-
-  return { prompt, element };
+  );
 }
 
 export function ConfirmDialog({
@@ -143,7 +128,7 @@ function PasswordField({
           autoFocus
           onChange={(e) => onChange(e.target.value)}
           className="w-full rounded border px-2 py-1 dark:bg-neutral-900"
-          placeholder={ui("输入分区密码")}
+          placeholder={ui("输入页面密码")}
         />
         {showGenerate && (
           <button
@@ -174,11 +159,11 @@ function ErrorText({ error }: { error: string | null }) {
 /** 设置分区密码：强制确认「忘记密码不可恢复」+ 生成器入口。 */
 export function SetPasswordDialog({
   spaceId,
-  sectionId,
+  pageId,
   onClose,
 }: {
   spaceId: string;
-  sectionId: string;
+  pageId: string;
   onClose: () => void;
 }) {
   const [password, setPassword] = useState("");
@@ -196,7 +181,8 @@ export function SetPasswordDialog({
     setBusy(true);
     setError(null);
     try {
-      await api.setSectionPassword(spaceId, sectionId, password, confirmed);
+      await flushPageSave();
+      await api.setPagePassword(spaceId, pageId, password, confirmed);
       await refreshTree();
       onClose();
     } catch (err) {
@@ -207,9 +193,9 @@ export function SetPasswordDialog({
   }
 
   return (
-    <Modal title={ui("设置分区密码")} onClose={onClose}>
+    <Modal title={ui("设置页面密码")} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <p className="rounded bg-amber-50 p-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">{ui("分区加密后忘记密码将无法恢复数据，请牢记密码或使用密码管理器保存。")}</p>
+        <p className="rounded bg-amber-50 p-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">{ui("页面加密后忘记密码将无法恢复数据，请牢记密码或使用密码管理器保存。")}</p>
         <PasswordField value={password} onChange={setPassword} showGenerate />
         <label className="flex items-start gap-2 text-sm">
           <input
@@ -218,7 +204,7 @@ export function SetPasswordDialog({
             onChange={(e) => setConfirmed(e.target.checked)}
             className="mt-0.5"
           />
-          <span>{ui("我已了解：忘记密码则该分区数据不可恢复")}</span>
+          <span>{ui("我已了解：忘记密码则该页面及子页面数据不可恢复")}</span>
         </label>
         <ErrorText error={error} />
         <div className="flex justify-end gap-2">
@@ -266,7 +252,7 @@ export function UnlockDialog({
   }
 
   return (
-    <Modal title={ui("解锁分区")} onClose={onClose}>
+    <Modal title={ui("解锁页面")} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <PasswordField value={password} onChange={setPassword} />
         <ErrorText error={error} />
@@ -306,6 +292,7 @@ export function ChangePasswordDialog({
     setBusy(true);
     setError(null);
     try {
+      await flushPageSave();
       if (mode === "change") {
         await api.changeSectionPassword(spaceId, sectionId, oldPassword, newPassword);
       } else {
@@ -321,10 +308,10 @@ export function ChangePasswordDialog({
   }
 
   return (
-    <Modal title={mode === "change" ? ui("修改分区密码") : ui("移除分区密码")} onClose={onClose}>
+    <Modal title={mode === "change" ? ui("修改页面密码") : ui("移除页面密码")} onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         {mode === "remove" && (
-          <p className="rounded bg-amber-50 p-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">{ui("移除密码后分区数据将恢复为明文存储。")}</p>
+          <p className="rounded bg-amber-50 p-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">{ui("移除密码后页面及子页面数据将恢复为明文存储。")}</p>
         )}
         <PasswordField value={oldPassword} onChange={setOldPassword} />
         {mode === "change" && (

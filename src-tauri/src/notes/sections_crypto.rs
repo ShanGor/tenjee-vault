@@ -192,7 +192,7 @@ fn migrate_pages(
         let new_stored = if encrypt {
             base64_encode(&cipher::seal(stored.as_bytes(), dsk)?)
         } else {
-            let plain = cipher::open(&base64_decode(&stored)?, dsk)?;
+            let plain = if stored.is_empty() { Vec::new() } else { cipher::open(&base64_decode(&stored)?, dsk)? };
             String::from_utf8(plain)
                 .map_err(|_| VaultError::Crypto("解密结果不是合法 UTF-8 文本".into()))?
         };
@@ -222,7 +222,7 @@ pub fn decrypted_pages(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut out = Vec::with_capacity(rows.len());
     for (rowid, title, stored) in rows {
-        let plain = cipher::open(&base64_decode(&stored)?, dsk.as_ref())?;
+        let plain = if stored.is_empty() { Vec::new() } else { cipher::open(&base64_decode(&stored)?, dsk.as_ref())? };
         let content = String::from_utf8(plain)
             .map_err(|_| VaultError::Crypto("解密结果不是合法 UTF-8 文本".into()))?;
         out.push((rowid, title, content));

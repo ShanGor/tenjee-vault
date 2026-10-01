@@ -1,3 +1,6 @@
+import { usePrompt } from "./usePrompt";
+import { flushPageSave } from "./pageSave";
+import PageSidebar from "./PageSidebar";
 import { Icon } from "../../shared/Icon";
 import { ui } from "../../i18n/ui";
 // 应用外壳：空间侧栏（栏 1）、心跳巡检、锁定事件同步（spec 6.2）。
@@ -7,12 +10,12 @@ import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { useNotesStore } from "./store";
-import { usePrompt, ConfirmDialog } from "./dialogs";
+import { ConfirmDialog } from "./dialogs";
 
 export default function AppShell() {
   const navigate = useNavigate();
   const { spaceId = "" } = useParams();
-  const { spaces, tree, currentSpaceId, settings, refreshSpaces, selectSpace, loadSettings, refreshTree, removeUnlocked } =
+  const { spaces, currentSpaceId, settings, refreshSpaces, selectSpace, loadSettings, refreshTree, removeUnlocked } =
     useNotesStore();
   const { prompt, element } = usePrompt();
   const [confirm, setConfirm] = useState<{ kind: "archive" | "delete"; id: string; name: string } | null>(null);
@@ -65,6 +68,7 @@ export default function AppShell() {
   }, []);
 
   async function onSpaceChange(id: string) {
+    await flushPageSave();
     navigate(`/s/${id}`);
   }
 
@@ -77,6 +81,7 @@ export default function AppShell() {
   }
 
   async function lockAll() {
+    await flushPageSave();
     await api.lockAllSections();
     await refreshTree();
   }
@@ -91,7 +96,7 @@ export default function AppShell() {
         <select
           aria-label={ui("空间")}
           className="rounded border px-2 py-1 text-sm dark:bg-neutral-900"
-          value={spaceId}
+          value={spaceId || currentSpaceId || ""}
           onChange={(e) => onSpaceChange(e.target.value)}
         >
           {spaces.map((s) => (
@@ -138,34 +143,19 @@ export default function AppShell() {
           {settings && (
             <label className="flex items-center gap-1 text-neutral-500">{ui("闲置")}{settings.section_auto_lock_minutes}{ui("分钟自动锁定")}</label>
           )}
-          <button className="rounded border px-2 py-1" onClick={lockAll} title={ui("锁定全部加密分区")}><span className="flex items-center gap-2"><Icon name="lock" size={15} />{ui("全部锁定")}</span></button>
+          <button className="rounded border px-2 py-1" onClick={lockAll} title={ui("全部锁定")}><span className="flex items-center gap-2"><Icon name="lock" size={15} />{ui("全部锁定")}</span></button>
         </span>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 栏 1：空间内笔记本列表 + 全局视图入口 */}
-        <aside className="flex w-52 shrink-0 flex-col border-r">
+        {/* 栏 1：空间内页面树 + 全局视图入口 */}
+        <aside className="notes-navigation flex w-64 shrink-0 flex-col border-r">
           <nav className="space-y-0.5 p-2">
             <NavLink to="/recent" className={linkCls}><Icon name="recent" />{ui("最近使用")}</NavLink>
             <NavLink to="/search" className={linkCls}><Icon name="search" />{ui("搜索")}</NavLink>
             <NavLink to="/trash" className={linkCls}><Icon name="trash" />{ui("回收站")}</NavLink>
           </nav>
-          <div className="min-h-0 flex-1 overflow-y-auto border-t p-2">
-            <h3 className="mb-1 px-2 text-xs font-semibold uppercase text-neutral-400">{ui("笔记本")}</h3>
-            {(tree?.notebooks ?? []).map((nb) => (
-              <NavLink
-                key={nb.id}
-                to={`/s/${spaceId}/nb/${nb.id}`}
-                className={linkCls}
-              >
-                <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: nb.color ?? "#94a3b8" }} />
-                {nb.name}
-              </NavLink>
-            ))}
-            {tree && tree.notebooks.length === 0 && (
-              <p className="px-2 text-sm text-neutral-400">{ui("暂无笔记本，去右侧创建")}</p>
-            )}
-          </div>
+          <PageSidebar />
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">

@@ -218,6 +218,7 @@ export function AttachmentBlock(deps: {
         localizeElement(delBtn, "删除");
         delBtn.type = "button";
         delBtn.onclick = async () => {
+          if (!editor.isEditable) return;
           if (!window.confirm(ui("删除附件 {p0}？", { p0: String(node.attrs.fileName) }))) return;
           await deps.deleteAttachment(node.attrs.attachmentId as string);
           if (typeof getPos === "function" && !editor.isDestroyed) {
@@ -225,8 +226,11 @@ export function AttachmentBlock(deps: {
             editor.chain().focus().deleteRange({ from: pos, to: pos + 1 }).run();
           }
         };
+        const updateEditable = () => { delBtn.hidden = !editor.isEditable; };
+        updateEditable();
+        editor.on("update", updateEditable);
         dom.append(name, openBtn, delBtn);
-        return { dom };
+        return { dom, destroy: () => editor.off("update", updateEditable) };
       };
     },
   });
@@ -280,18 +284,20 @@ export const DrawingBlock = Node.create({
 
       const render = () => {
         dom.innerHTML = "";
-        if (!editing && node.attrs.svg) {
+        if (!editor.isEditable || (!editing && node.attrs.svg)) {
           const view = document.createElement("div");
           view.className = "drawing-view";
           view.innerHTML = node.attrs.svg as string;
           view.addEventListener("click", () => {
+            if (!editor.isEditable) return;
             editing = true;
             render();
           });
           const hint = document.createElement("span");
           hint.className = "drawing-hint";
           localizeElement(hint, "点击继续编辑");
-          dom.append(view, hint);
+          dom.append(view);
+          if (editor.isEditable) dom.append(hint);
           return;
         }
 
@@ -315,6 +321,7 @@ export const DrawingBlock = Node.create({
         const doneBtn = document.createElement("button");
         doneBtn.type = "button";
         localizeElement(doneBtn, "完成");
+        doneBtn.setAttribute("data-save-drawing", "true");
         const clearBtn = document.createElement("button");
         clearBtn.type = "button";
         localizeElement(clearBtn, "清空");
@@ -377,6 +384,7 @@ export const DrawingBlock = Node.create({
         });
 
         doneBtn.onclick = () => {
+          if (!editor.isEditable) return;
           const serializer = new XMLSerializer();
           const svgText = serializer.serializeToString(svg);
           if (typeof getPos === "function" && !editor.isDestroyed) {
@@ -394,9 +402,11 @@ export const DrawingBlock = Node.create({
           render();
         };
         clearBtn.onclick = () => {
+          if (!editor.isEditable) return;
           for (const child of Array.from(svg.childNodes)) child.remove();
         };
         delBtn.onclick = () => {
+          if (!editor.isEditable) return;
           if (typeof getPos === "function" && !editor.isDestroyed) {
             const pos = getPos() ?? 0;
             editor.chain().focus().deleteRange({ from: pos, to: pos + 1 }).run();
@@ -404,9 +414,17 @@ export const DrawingBlock = Node.create({
         };
       };
 
+      let editable = editor.isEditable;
+      const updateEditable = () => {
+        if (editable === editor.isEditable) return;
+        editable = editor.isEditable;
+        render();
+      };
+      editor.on("update", updateEditable);
       render();
       return {
         dom,
+        destroy: () => editor.off("update", updateEditable),
         // 属性更新（如回滚后）时重渲染
         update(updated) {
           if (updated.type.name !== "drawingBlock") return false;

@@ -43,23 +43,6 @@ fn notes_for_space(
     inner.with_space(&space.id, |conn| {
         let unlocked = inner.session.unlocked_section_ids();
         let hits: Vec<SearchHit> = search::search(conn, query, &unlocked, limit)?;
-        let mut context = std::collections::HashMap::new();
-        let mut statement = conn.prepare(
-            "SELECT s.id, s.name, n.name FROM sections s JOIN notebooks n ON n.id = s.notebook_id",
-        )?;
-        for row in statement.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })? {
-            let (section_id, section_name, notebook_name) = row?;
-            context.insert(
-                section_id,
-                format!("{} / {} / {}", space.name, notebook_name, section_name),
-            );
-        }
         let count = hits.len();
         Ok(hits
             .into_iter()
@@ -69,9 +52,7 @@ fn notes_for_space(
                 id: hit.page_id.clone(),
                 title: hit.title,
                 snippet: hit.snippet,
-                context: context
-                    .remove(&hit.section_id)
-                    .unwrap_or_else(|| space.name.clone()),
+                context: format!("{} / {}",space.name,crate::notes::page_tree::path(conn,&hit.page_id).unwrap_or_default()),
                 score: score(index, count),
                 route: format!("#/notes/s/{}/page/{}", space.id, hit.page_id),
             })

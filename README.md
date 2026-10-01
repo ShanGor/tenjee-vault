@@ -64,19 +64,32 @@ integrity checking fails, the original directory is restored and Settings displa
 Use **清理恢复前副本** only after confirming the restored data is correct.
 
 Keep at least one verified backup on separate storage before an operating-system reinstall or a
-destructive restore. A backup contains encrypted sections as ciphertext; restoring it does not
+destructive restore. A backup contains protected page trees as ciphertext; restoring it does not
 weaken their password protection.
+
+## Organizing notes
+
+Each space contains an expandable tree of pages. Every page can hold content and child pages.
+Use **New page** below the page list to create a root page, or **New child page** in a page's menu.
+Drag onto a page to make it a child; drag between rows to reorder it. Existing notebooks, groups,
+and sections become editable parent pages on upgrade, preserving existing page links and data.
+
+Protection is inherited by child pages. A protected tree keeps its password when moved beneath
+an ordinary page. Independent protected trees cannot be nested; remove one protection first.
+
+Pages open in read-only mode. Choose **Edit** to change the title or content, then
+**Done editing** to save and return to reading. Opening another page starts in read-only mode.
 
 ## Encryption and password recovery
 
-Encrypted note sections are protected with the password you set. Tenjee Vault does not upload,
+A page and its children can be protected with the password you set. Tenjee Vault does not upload,
 store, or provide a recovery copy of that password. If it is forgotten, the encrypted content
 cannot be recovered. Exporting an unlocked encrypted page is explicitly confirmed because the
 chosen output becomes plaintext.
 
 ## Import, export, and known limits
 
-Notes can import UTF-8 Markdown, HTML, and plain text; pages and sections export to Markdown,
+Notes can import UTF-8 Markdown, HTML, and plain text; pages and page trees export to Markdown,
 HTML, or PDF and can use the print view. Calendar import/export uses UTF-8 iCalendar (`.ics`);
 see [the iCalendar guide](docs/calendar-ical.md) for recurrence and timezone details.
 

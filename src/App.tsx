@@ -1,3 +1,4 @@
+import { flushPageSave } from "./modules/notes/pageSave";
 import { Icon, type IconName } from "./shared/Icon";
 import { ui } from "./i18n/ui";
 import { useCallback, useEffect, useState } from "react";
@@ -29,7 +30,7 @@ export default function App() {
     if (id === "open-command-palette") return setPaletteOpen(true);
     if (id === "quick-note") return setCapture("note");
     if (id === "quick-task") return setCapture("task");
-    if (id === "lock-all") { void notesApi.lockAllSections(); return; }
+    if (id === "lock-all") { void flushPageSave().then(() => notesApi.lockAllSections()); return; }
     const routes: Partial<Record<ActionId, string>> = { "go-notes": "#/notes", "go-tasks": "#/tasks", "go-calendar": "#/calendar", "go-settings": "#/settings" };
     if (routes[id]) window.location.hash = routes[id]!;
   }, []);
@@ -141,10 +142,7 @@ function QuickCapture({ kind, onClose }: { kind: "note" | "task"; onClose(): voi
       } else {
         const spaces = await notesApi.listSpaces();
         const space = spaces[0] ?? (await notesApi.ensureDefaultSpace())[0];
-        const tree = await notesApi.getTree(space.id);
-        const section = tree.notebooks.flatMap((notebook) => [...notebook.sections, ...notebook.groups.flatMap(function flatten(group): typeof notebook.sections { return [...group.sections, ...group.children.flatMap(flatten)]; })])[0];
-        if (!section) throw new Error(ui("请先在笔记中创建一个分区。"));
-        const page = await notesApi.createPage(space.id, section.id, null, title.trim());
+        const page = await notesApi.createSpacePage(space.id, null, title.trim());
         window.location.hash = `#/notes/s/${space.id}/page/${page.id}`;
       }
       onClose();

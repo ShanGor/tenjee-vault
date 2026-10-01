@@ -132,6 +132,23 @@ pub fn build_unlocked_index(
     Ok(())
 }
 
+/// Refresh one already-unlocked page without rebuilding its whole collection.
+pub fn update_unlocked_page(
+    conn: &Connection,
+    section_id: &str,
+    rowid: i64,
+    title: &str,
+    content: &str,
+) -> VaultResult<()> {
+    let table = temp_table_name(section_id);
+    conn.execute(&format!("DELETE FROM temp.{table} WHERE rowid=?1"), [rowid])?;
+    conn.execute(
+        &format!("INSERT INTO temp.{table}(rowid,title,content) VALUES (?1,?2,?3)"),
+        params![rowid, segment_cjk(title), segment_cjk(content)],
+    )?;
+    Ok(())
+}
+
 /// 销毁解锁分区的内存临时索引（锁定收口，绝不残留）。
 pub fn drop_unlocked_index(conn: &Connection, section_id: &str) -> VaultResult<()> {
     let table = temp_table_name(section_id);

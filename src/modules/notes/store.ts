@@ -20,6 +20,8 @@ interface NotesState {
   isSectionLocked: (section?: { is_encrypted: boolean; id: string } | null) => boolean;
 }
 
+let treeRequest = 0;
+
 export const useNotesStore = create<NotesState>((set, get) => ({
   spaces: [],
   tree: null,
@@ -42,12 +44,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   refreshTree: async () => {
     const spaceId = get().currentSpaceId;
     if (!spaceId) return;
+    const request = ++treeRequest;
     set({ loading: true });
     try {
       const tree = await api.getTree(spaceId);
-      set({ tree, unlocked: tree.unlocked_section_ids });
+      if (request === treeRequest && spaceId === get().currentSpaceId) set({ tree, unlocked: tree.unlocked_section_ids });
     } finally {
-      set({ loading: false });
+      if (request === treeRequest) set({ loading: false });
     }
   },
 

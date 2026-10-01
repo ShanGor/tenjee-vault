@@ -5,6 +5,7 @@
 pub mod attachments;
 pub mod hierarchy;
 pub mod pages;
+pub mod page_tree;
 pub mod sections_crypto;
 pub mod session;
 
@@ -54,6 +55,8 @@ pub(crate) fn reveal_content(
         return Ok(stored.to_string());
     }
     session.with_dsk(section_id, |dsk| {
+        // Migrated protected parent pages start as empty documents.
+        if stored.is_empty() { return Ok(String::new()); }
         let sealed = base64_decode(stored)?;
         let plain = cipher::open(&sealed, dsk)?;
         String::from_utf8(plain)

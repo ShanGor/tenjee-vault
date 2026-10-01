@@ -7,38 +7,8 @@ export interface SpaceInfo {
   db_file: string;
 }
 
-export interface Section {
-  id: string;
-  notebook_id: string;
-  section_group_id: string | null;
-  name: string;
-  color: string | null;
-  sort_order: number;
-  is_encrypted: boolean;
-  is_unlocked: boolean;
-}
-
-export interface SectionGroupNode {
-  id: string;
-  notebook_id: string;
-  parent_group_id: string | null;
-  name: string;
-  sort_order: number;
-  children: SectionGroupNode[];
-  sections: Section[];
-}
-
-export interface NotebookNode {
-  id: string;
-  name: string;
-  color: string | null;
-  sort_order: number;
-  groups: SectionGroupNode[];
-  sections: Section[];
-}
-
 export interface TreeDto {
-  notebooks: NotebookNode[];
+  pages: SpacePageNode[];
   unlocked_section_ids: string[];
 }
 
@@ -50,6 +20,12 @@ export interface PageNode {
   sort_order: number;
   updated_at: string;
   children: PageNode[];
+}
+
+export interface SpacePageNode extends PageNode {
+  is_encrypted: boolean;
+  protection_root_id: string | null;
+  children: SpacePageNode[];
 }
 
 export interface Page {
@@ -71,11 +47,10 @@ export interface PageVersion {
 }
 
 export interface TrashEntry {
+  path: string;
   id: string;
   title: string;
   deleted_at: string;
-  section_name: string;
-  notebook_name: string;
 }
 
 export interface RecentEntry {
@@ -102,10 +77,9 @@ export interface AttachmentData extends Attachment {
 }
 
 export interface SearchResult {
+  path: string;
   page_id: string;
   section_id: string;
-  section_name: string;
-  notebook_name: string;
   title: string;
   snippet: string;
   from_unlocked: boolean;
@@ -201,51 +175,19 @@ export const api = {
 
   // 导航树
   getTree: (spaceId: string) => invoke<TreeDto>("get_tree", { spaceId }),
-  getPageTree: (spaceId: string, sectionId: string) =>
-    invoke<PageNode[]>("get_page_tree", { spaceId, sectionId }),
   listPageTitles: (spaceId: string) => invoke<PageTitle[]>("list_page_titles_cmd", { spaceId }),
 
-  // 笔记本
-  createNotebook: (spaceId: string, name: string, color: string | null) =>
-    invoke<NotebookNode>("create_notebook_cmd", { spaceId, name, color }),
-  renameNotebook: (spaceId: string, id: string, name: string) =>
-    invoke<void>("rename_notebook_cmd", { spaceId, id, name }),
-  setNotebookColor: (spaceId: string, id: string, color: string | null) =>
-    invoke<void>("set_notebook_color_cmd", { spaceId, id, color }),
-  reorderNotebooks: (spaceId: string, ids: string[]) =>
-    invoke<void>("reorder_notebooks_cmd", { spaceId, ids }),
-  deleteNotebook: (spaceId: string, id: string) => invoke<void>("delete_notebook_cmd", { spaceId, id }),
-
-  // 分区组
-  createSectionGroup: (spaceId: string, notebookId: string, parentGroupId: string | null, name: string) =>
-    invoke<SectionGroupNode>("create_section_group_cmd", { spaceId, notebookId, parentGroupId, name }),
-  renameSectionGroup: (spaceId: string, id: string, name: string) =>
-    invoke<void>("rename_section_group_cmd", { spaceId, id, name }),
-  moveSectionGroup: (spaceId: string, id: string, notebookId: string, parentGroupId: string | null) =>
-    invoke<void>("move_section_group_cmd", { spaceId, id, notebookId, parentGroupId }),
-  deleteSectionGroup: (spaceId: string, id: string) =>
-    invoke<void>("delete_section_group_cmd", { spaceId, id }),
-
-  // 分区
-  createSection: (spaceId: string, notebookId: string, sectionGroupId: string | null, name: string, color: string | null) =>
-    invoke<Section>("create_section_cmd", { spaceId, notebookId, sectionGroupId, name, color }),
-  renameSection: (spaceId: string, id: string, name: string) =>
-    invoke<void>("rename_section_cmd", { spaceId, id, name }),
-  setSectionColor: (spaceId: string, id: string, color: string | null) =>
-    invoke<void>("set_section_color_cmd", { spaceId, id, color }),
-  moveSection: (spaceId: string, id: string, notebookId: string, sectionGroupId: string | null) =>
-    invoke<void>("move_section_cmd", { spaceId, id, notebookId, sectionGroupId }),
-  reorderSections: (spaceId: string, ids: string[]) =>
-    invoke<void>("reorder_sections_cmd", { spaceId, ids }),
-  deleteSection: (spaceId: string, id: string) => invoke<void>("delete_section_cmd", { spaceId, id }),
-
-  // 页面
-  createPage: (spaceId: string, sectionId: string, parentPageId: string | null, title: string) =>
-    invoke<PageNode>("create_page_cmd", { spaceId, sectionId, parentPageId, title }),
+  // Space pages; section IDs below are private crypto handles.
+  createSpacePage: (spaceId: string, parentPageId: string | null, title: string) =>
+    invoke<PageNode>("create_space_page_cmd", { spaceId, parentPageId, title }),
+  getPageMetadata: (spaceId: string, pageId: string) =>
+    invoke<SpacePageNode>("get_page_metadata_cmd", { spaceId, pageId }),
+  setPagePassword: (spaceId: string, pageId: string, password: string, confirmIrrecoverable: boolean) =>
+    invoke<void>("set_page_password_cmd", { spaceId, pageId, password, confirmIrrecoverable }),
   renamePage: (spaceId: string, id: string, title: string) =>
     invoke<void>("rename_page_cmd", { spaceId, id, title }),
-  movePage: (spaceId: string, id: string, sectionId: string, parentPageId: string | null, sortOrder: number) =>
-    invoke<void>("move_page_cmd", { spaceId, id, sectionId, parentPageId, sortOrder }),
+  movePage: (spaceId: string, id: string, parentPageId: string | null, sortOrder: number) =>
+    invoke<void>("move_page_cmd", { spaceId, id, sectionId: "", parentPageId, sortOrder }),
   deletePage: (spaceId: string, id: string) => invoke<void>("delete_page_cmd", { spaceId, id }),
   restorePage: (spaceId: string, id: string) => invoke<void>("restore_page_cmd", { spaceId, id }),
   purgePage: (spaceId: string, id: string) => invoke<void>("purge_page_cmd", { spaceId, id }),
@@ -257,17 +199,16 @@ export const api = {
     invoke<PageVersion[]>("list_versions_cmd", { spaceId, pageId }),
   rollbackVersion: (spaceId: string, pageId: string, versionId: string) =>
     invoke<void>("rollback_version_cmd", { spaceId, pageId, versionId }),
-  importNoteFiles: (spaceId: string, sectionId: string, paths: string[]) =>
-    invoke<BatchResult<ImportedPage>>("import_note_files_cmd", { spaceId, sectionId, paths }),
+  importNoteFiles: (spaceId: string, sectionId: string, paths: string[], parentPageId: string | null = null) =>
+    invoke<BatchResult<ImportedPage>>("import_note_files_cmd", { spaceId, sectionId, paths, parentPageId }),
   requestPageExportConfirmation: (spaceId: string, pageId: string, format: NoteExportFormat, directory: string, filename: string) =>
     invoke<string>("request_page_export_confirmation_cmd", { spaceId, pageId, format, directory, filename }),
-  requestSectionExportConfirmation: (spaceId: string, sectionId: string, format: NoteExportFormat, directory: string, name: string) =>
-    invoke<string>("request_section_export_confirmation_cmd", { spaceId, sectionId, format, directory, name }),
+  requestSubtreeExportConfirmation: (spaceId: string, pageId: string, format: NoteExportFormat, directory: string, name: string) =>
+    invoke<string>("request_subtree_export_confirmation_cmd", { spaceId, pageId, format, directory, name }),
+  exportSubtree: (spaceId: string, pageId: string, format: NoteExportFormat, directory: string, name: string, overwrite: boolean, confirmationToken?: string) =>
+    invoke<void>("export_subtree_cmd", { spaceId, pageId, format, directory, name, overwrite, confirmationToken }),
   exportPage: (spaceId: string, pageId: string, format: NoteExportFormat, directory: string, filename: string, overwrite: boolean, confirmationToken?: string) =>
     invoke<void>("export_page_cmd", { spaceId, pageId, format, directory, filename, overwrite, confirmationToken }),
-  exportSection: (spaceId: string, sectionId: string, format: NoteExportFormat, directory: string, name: string, overwrite: boolean, confirmationToken?: string) =>
-    invoke<void>("export_section_cmd", { spaceId, sectionId, format, directory, name, overwrite, confirmationToken }),
-
   // 最近使用
   recordPageOpen: (spaceId: string, pageId: string) =>
     invoke<void>("record_page_open_cmd", { spaceId, pageId }),
@@ -284,12 +225,10 @@ export const api = {
     invoke<Attachment[]>("list_attachments_cmd", { spaceId, entityId }),
 
   // 搜索
-  searchNotes: (spaceId: string, query: string, notebookId: string | null, sectionId: string | null, limit: number) =>
-    invoke<SearchResult[]>("search_notes_cmd", { spaceId, query, notebookId, sectionId, limit }),
+  searchNotes: (spaceId: string, query: string, limit: number, rootPageId: string | null = null) =>
+    invoke<SearchResult[]>("search_notes_cmd", { spaceId, query, notebookId: null, sectionId: null, limit, rootPageId }),
 
   // 加密分区
-  setSectionPassword: (spaceId: string, sectionId: string, password: string, confirmIrrecoverable: boolean) =>
-    invoke<void>("set_section_password_cmd", { spaceId, sectionId, password, confirmIrrecoverable }),
   unlockSection: (spaceId: string, sectionId: string, password: string) =>
     invoke<void>("unlock_section_cmd", { spaceId, sectionId, password }),
   lockSection: (spaceId: string, sectionId: string) =>

@@ -52,8 +52,8 @@ fn evidence(root: &Path) -> Value {
         hashes.sort();hashes
     };
     json!({
-        "pages":projection(&format!("spaces/{SPACE}.db"),"SELECT json_array(id,section_id,title,content) FROM pages ORDER BY id"),
-        "keys":projection(&format!("spaces/{SPACE}.db"),"SELECT json_array(id,hex(kdf_salt),kdf_params,hex(verifier),hex(wrapped_dsk)) FROM sections ORDER BY id"),
+        "pages":projection(&format!("spaces/{SPACE}.db"),"SELECT json_array(id,section_id,title,content) FROM pages WHERE id NOT LIKE 'notebook:%' AND id NOT LIKE 'group:%' AND id NOT LIKE 'section:%' ORDER BY id"),
+        "keys":projection(&format!("spaces/{SPACE}.db"),"SELECT json_array(id,hex(kdf_salt),kdf_params,hex(verifier),hex(wrapped_dsk)) FROM sections WHERE id != '__plain_pages__' ORDER BY id"),
         "note_tags":projection(&format!("spaces/{SPACE}.db"),"SELECT json_array(tag_id,entity_id) FROM taggings ORDER BY entity_id"),
         "tasks":projection("tasks.db","SELECT json_array(id,list_id,title,status) FROM tasks ORDER BY id"),
         "task_tags":projection("tasks.db","SELECT json_array(tag_id,entity_id) FROM taggings ORDER BY entity_id"),
@@ -76,6 +76,13 @@ fn m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext() {
     let state=AppState::init(root.clone(),report).unwrap();
     state.inner.with_space(SPACE,|_|Ok(())).unwrap();
     assert_eq!(evidence(&root),before);
+    state.inner.with_space(SPACE, |conn| {
+        let tree=crate::notes::page_tree::tree(conn)?;
+        assert_eq!(tree.len(),1);
+        assert_eq!(tree[0].children.len(),2);
+        assert!(tree[0].children.iter().all(|node| node.children.len()==1));
+        Ok(())
+    }).unwrap();
     let archive=directory.path().join("m3-upgraded.tvault");
     writer::create_backup(&state.inner,&archive,false,false).unwrap();
     state.inner.with_tasks(|conn| { conn.execute("UPDATE tasks SET title='Changed after backup'",[])?;Ok(()) }).unwrap();

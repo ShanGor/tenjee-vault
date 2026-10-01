@@ -12,8 +12,8 @@ it("switches every UI catalog entry and preserves user-provided message paramete
 it("uses stable error codes for locked pages and localizes template password-removal guidance", () => {
   const locked=JSON.stringify({code:"section_locked",params:[["section","id"]]});
   expect(commandErrorCode(locked)).toBe("section_locked");
-  expect(uiError(locked)).toBe("Section is locked");
+  expect(uiError(locked)).toBe("Page is locked");
   const blocked=JSON.stringify({code:"validation",params:[["detail","请先导出并删除或直接删除此分区的加密模板，再移除密码"]]});
   expect(uiError(blocked)).toContain("before removing its password");
-  setUILocale("zh-CN"); expect(uiError(locked)).toBe("分区已锁定");
+  setUILocale("zh-CN"); expect(uiError(locked)).toBe("页面已锁定");
 });
