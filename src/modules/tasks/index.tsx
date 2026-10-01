@@ -5,6 +5,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useMemo, useState } from "react";
 import { usePointerDrag } from "../../shared";
+import { formatDate } from "../../shared/date";
 import { bytesToBase64, taskApi, Task, TaskList, TaskNode, TaskSearchHit, TaskStatus } from "./api";
 import { useTaskStore } from "./store";
 
@@ -25,6 +26,7 @@ export function TasksApp() {
   const [searchHits, setSearchHits] = useState<TaskSearchHit[]>([]);
   const [query, setQuery] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<"active" | "all" | "completed">("active");
   useEffect(() => { void (async () => {
     await store.loadLists();
     const taskId = new URLSearchParams((window.location.hash.split("?")[1] ?? "")).get("task");
@@ -70,7 +72,7 @@ export function TasksApp() {
       <header className="task-page-header flex items-center gap-2 border-b p-3"><div><h2 className="font-semibold">{view === "list" ? store.lists.find((item) => item.id === store.selectedListId)?.name ?? ui("任务") : labels[view]}</h2>{view === "list" && store.lists.find((item) => item.id === store.selectedListId)?.name === "收件箱" && <p className="task-list-hint">{ui("收件箱是默认任务列表，用来暂存尚未分类的任务。")}</p>}</div><div className="ml-auto flex items-center gap-2">{view === "list" && <><button className="rounded border px-3 py-2 text-xs" onClick={() => setListDialog({ value: store.lists.find((item) => item.id === store.selectedListId) })}>{ui("编辑列表")}</button><button className="rounded border px-3 py-2 text-xs" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); useTaskStore.setState({ selected: new Set() }); }}>{ui(selectionMode ? "退出选择" : "批量选择")}</button></>}<button className="rounded border px-3 py-2 text-xs" disabled={!store.selectedListId} onClick={() => setMedicationDialog(true)}>{ui("服药疗程")}</button><button className="primary-button" disabled={!store.selectedListId} onClick={() => setTaskDialog({})}><Icon name="plus" size={16} />{ui("新建任务")}</button></div></header>
       {selectionMode && <div className="task-selection-bar"><span>{ui("已选择 {p0} 项", { p0: store.selected.size })}</span><BatchToolbar refresh={refresh} /></div>}
       {actionError && <p role="alert" className="task-form-error px-6">{actionError}</p>}
-      {view === "list" && <><div className="flex gap-2 border-b p-3"><input className="flex-1 rounded border px-3 py-1.5 dark:bg-neutral-900" placeholder={ui("快速添加任务")} value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void quickAdd()} /><button disabled={quickSaving || !quickTitle.trim()} className="rounded bg-blue-600 px-3 text-white" onClick={quickAdd}>{ui("添加")}</button></div><div className="min-h-0 flex-1 overflow-y-auto p-3">{store.tree.map((node, index) => <TaskRow key={node.id} node={node} depth={0} index={index} selectionMode={selectionMode} onCreateChild={(parent) => setTaskDialog({ parent })} onRefresh={store.refresh} />)}</div></>}
+      {view === "list" && <><div className="flex gap-2 border-b p-3"><input className="flex-1 rounded border px-3 py-1.5 dark:bg-neutral-900" placeholder={ui("快速添加任务")} value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void quickAdd()} /><button disabled={quickSaving || !quickTitle.trim()} className="rounded bg-blue-600 px-3 text-white" onClick={quickAdd}>{ui("添加")}</button></div><div className="flex items-center gap-1 border-b px-3 py-2">{([{ id: "active", label: ui("未完成") }, { id: "all", label: ui("全部任务") }, { id: "completed", label: ui("仅已完成") }] as const).map((item) => <button key={item.id} aria-pressed={taskFilter === item.id} className={`rounded px-3 py-1 text-xs ${taskFilter === item.id ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200" : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`} onClick={() => setTaskFilter(item.id)}>{item.label}</button>)}</div><div className="min-h-0 flex-1 overflow-y-auto p-3">{filterTree(store.tree, taskFilter).map((node, index) => <TaskRow key={node.id} node={node} depth={0} index={index} selectionMode={selectionMode} onCreateChild={(parent) => setTaskDialog({ parent })} onRefresh={store.refresh} />)}</div></>}
       {view === "kanban" && <Kanban tasks={flatTasks} onRefresh={refresh} />}
       {(["today", "week", "overdue"] as View[]).includes(view) && <TaskFlatList tasks={flatTasks} onRefresh={refresh} />}
       {view === "archive" && <ArchiveView tasks={flatTasks} onRefresh={refresh} />}
@@ -85,6 +87,23 @@ export function TasksApp() {
 
 async function loadFlat(view: View, set: (tasks: Task[]) => void) { if (view === "kanban") set(await taskApi.kanban()); else if (["today", "week", "overdue"].includes(view)) set(await taskApi.smart(view as "today" | "week" | "overdue")); else if (view === "archive") set(await taskApi.archived()); }
 function flatten(nodes: TaskNode[]): TaskNode[] { return nodes.flatMap((node) => [node, ...flatten(node.children)]); }
+function filterTree(nodes: TaskNode[], filter: "active" | "all" | "completed"): TaskNode[] {
+  if (filter === "all") return nodes;
+  return nodes.flatMap((node) => {
+    const children = filterTree(node.children, filter);
+    const matches = filter === "completed" ? node.status === "done" : node.status !== "done";
+    if (!matches && !children.length) return [];
+    if (filter === "completed" && !matches) return children;
+    return [{ ...node, children }];
+  });
+}
+function dueDateClass(date: string | null | undefined) {
+  if (!date) return "text-neutral-400";
+  const current = formatDate(new Date());
+  if (date < current) return "font-medium text-red-600 dark:text-red-400";
+  if (date === current) return "font-medium text-blue-600 dark:text-blue-400";
+  return "text-neutral-400";
+}
 
 function BatchToolbar({ refresh }: { refresh(): Promise<void> }) {
   const selected = useTaskStore((state) => state.selected); const lists = useTaskStore((state) => state.lists);
@@ -97,7 +116,7 @@ function TaskRow({ node, depth, index, selectionMode, onCreateChild, onRefresh }
   const selected = useTaskStore((state) => state.selected);
   const drag = usePointerDrag<{ id: string; parent: string | null; index: number }>({ onEnd: async ({ data, delta }) => { const shift = Math.round(delta.y / 44); if (shift) { await taskApi.reorder(data.id, data.parent, Math.max(0, data.index + shift)); await onRefresh(); } } });
   return <><div draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-task-id", node.id); e.dataTransfer.setData("application/x-task", JSON.stringify({ id: node.id, title: node.title })); }} className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-900" style={{ paddingLeft: `${depth * 20 + 8}px` }} onPointerMove={drag.onPointerMove} onPointerUp={drag.onPointerUp} onPointerCancel={drag.onPointerCancel}>
-    <span className="cursor-grab select-none" onPointerDown={drag.onPointerDown({ id: node.id, parent: node.parent_task_id, index })}>⠿</span>{selectionMode ? <input type="checkbox" aria-label={ui("选择任务：{p0}", {p0: node.title})} checked={selected.has(node.id)} onChange={() => useTaskStore.getState().toggleSelected(node.id)} /> : <input type="checkbox" aria-label={ui("完成任务：{p0}", {p0: node.title})} checked={node.status === "done"} onChange={async () => { await taskApi.setStatus(node.id, node.status === "done" ? "todo" : "done"); await onRefresh(); }} />}<button className={`min-w-0 flex-1 truncate text-left ${node.status === "done" ? "line-through text-neutral-400" : ""}`} onClick={() => useTaskStore.setState({ selectedTaskId: node.id })}>{node.title}</button>{node.due_date && <time className="text-xs text-neutral-400">{node.due_date}</time>}<button className="task-icon-button invisible group-hover:visible" title={ui("新建子任务")} aria-label={ui("新建子任务")} onClick={() => onCreateChild(node)}><Icon name="plus" size={16} /></button>
+    <span className="cursor-grab select-none" onPointerDown={drag.onPointerDown({ id: node.id, parent: node.parent_task_id, index })}>⠿</span>{selectionMode ? <input type="checkbox" aria-label={ui("选择任务：{p0}", {p0: node.title})} checked={selected.has(node.id)} onChange={() => useTaskStore.getState().toggleSelected(node.id)} /> : <input type="checkbox" aria-label={ui("完成任务：{p0}", {p0: node.title})} checked={node.status === "done"} onChange={async () => { await taskApi.setStatus(node.id, node.status === "done" ? "todo" : "done"); await onRefresh(); }} />}<button className={`min-w-0 flex-1 truncate text-left ${node.status === "done" ? "line-through text-neutral-400" : ""}`} onClick={() => useTaskStore.setState({ selectedTaskId: node.id })}>{node.title}</button>{node.due_date && <time className={`text-xs ${dueDateClass(node.due_date)}`}>{node.due_date}</time>}<button className="task-icon-button invisible group-hover:visible" title={ui("新建子任务")} aria-label={ui("新建子任务")} onClick={() => onCreateChild(node)}><Icon name="plus" size={16} /></button>
   </div>{node.children.map((child, childIndex) => <TaskRow key={child.id} node={child} depth={depth + 1} index={childIndex} selectionMode={selectionMode} onCreateChild={onCreateChild} onRefresh={onRefresh} />)}</>;
 }
 
