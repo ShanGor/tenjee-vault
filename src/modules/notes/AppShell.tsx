@@ -20,6 +20,25 @@ export default function AppShell() {
   const { prompt, element } = usePrompt();
   const [confirm, setConfirm] = useState<{ kind: "archive" | "delete"; id: string; name: string } | null>(null);
 
+  useEffect(() => {
+    function closeMenus(event: PointerEvent) {
+      const target = event.target;
+      const clickedMenuItem = target instanceof Element && !!target.closest(".action-menu-panel");
+      document.querySelectorAll<HTMLDetailsElement>("details.action-menu[open]").forEach((menu) => {
+        if (!menu.contains(target as Node) || clickedMenuItem) menu.open = false;
+      });
+    }
+    function closeMenusOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") document.querySelectorAll<HTMLDetailsElement>("details.action-menu[open]").forEach((menu) => { menu.open = false; });
+    }
+    document.addEventListener("pointerdown", closeMenus);
+    document.addEventListener("keydown", closeMenusOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenus);
+      document.removeEventListener("keydown", closeMenusOnEscape);
+    };
+  }, []);
+
   // 初始化：设置 → 空间 → 默认空间兜底 → 选中第一个空间
   useEffect(() => {
     (async () => {

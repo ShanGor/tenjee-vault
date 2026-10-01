@@ -444,5 +444,6 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
 }
 
 .page-mode-switch button[aria-pressed="true"] { background: var(--color-blue-50); color: var(--color-accent); }
-.markdown-source { display: block; width: 100%; min-height: 24rem; resize: vertical; border: 0; outline: none; background: transparent; color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.75; tab-size: 2; }
+.page-markdown-content { display: flex; min-height: 100%; flex-direction: column; }
+.markdown-source { display: block; width: 100%; min-height: 24rem; flex: 1; resize: vertical; border: 0; outline: none; background: transparent; color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.75; tab-size: 2; }
 @media print { .page-mode-switch, .page-markdown-content { display: none !important; } .page-rich-content[hidden] { display: block !important; } }

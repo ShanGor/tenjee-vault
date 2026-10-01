@@ -1,5 +1,5 @@
 import { usePrompt } from "./usePrompt";
-import { DragEvent, useEffect, useState } from "react";
+import { DragEvent, KeyboardEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../shared/Icon";
 import { ui, uiError } from "../../i18n/ui";
@@ -23,6 +23,33 @@ export default function PageSidebar() {
   const { prompt, element } = usePrompt();
   const nodes = tree?.pages ?? [];
   const locked = (node: SpacePageNode) => node.is_encrypted && !unlocked.includes(node.section_id);
+
+  function visiblePages(items: SpacePageNode[]): SpacePageNode[] {
+    return items.flatMap((node) => [node, ...(expanded.has(node.id) && !(locked(node) && settings?.encrypted_section_show_titles === false) ? visiblePages(node.children) : [])]);
+  }
+
+  function handleTreeKeyDown(event: KeyboardEvent<HTMLDivElement>, node: SpacePageNode) {
+    if (event.altKey || event.ctrlKey || event.metaKey || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    if (!(event.target instanceof Element) || !event.target.closest(".page-tree-link, .page-tree-toggle")) return;
+    const pages = visiblePages(nodes);
+    const index = pages.findIndex((page) => page.id === node.id);
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      if (event.key === "ArrowRight" && node.children.length && !expanded.has(node.id) && !(locked(node) && settings?.encrypted_section_show_titles === false)) {
+        setExpanded((previous) => new Set([...previous, node.id]));
+      } else if (event.key === "ArrowLeft" && expanded.has(node.id)) {
+        setExpanded((previous) => { const next = new Set(previous); next.delete(node.id); return next; });
+      }
+      return;
+    }
+
+    const next = pages[index + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    const link = [...document.querySelectorAll<HTMLButtonElement>(".page-tree-link")].find((candidate) => candidate.dataset.pageId === next.id);
+    link?.focus();
+    void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(next.id)}`));
+  }
 
   useEffect(() => { setExpanded(new Set()); setTarget(null); setDialog(null); setDeleting(null); setError(""); }, [spaceId]);
   useEffect(() => {
@@ -57,11 +84,11 @@ export default function PageSidebar() {
     const title = isLocked && settings?.encrypted_section_show_titles === false ? ui("受保护页面") : node.title || ui("（无标题）");
     return <div key={node.id}>
       <div className="page-drop-target" onDragOver={(event) => event.preventDefault()} onDrop={(event) => void move(event, node.parent_page_id, index)} />
-      <div className={`page-tree-row ${node.id === pageId ? "active" : ""}`} style={{ paddingLeft: 6 + depth * 14 }} draggable={!isLocked}
+      <div className={`page-tree-row ${node.id === pageId ? "active" : ""}`} style={{ paddingLeft: 6 + depth * 14 }} draggable={!isLocked} onKeyDown={(event) => handleTreeKeyDown(event, node)}
         onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.setData("application/x-tenjee-page", node.id); event.dataTransfer.effectAllowed = "move"; }}
         onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }} onDrop={(event) => void move(event, node.id, node.children.length)}>
         <button className="page-tree-toggle" aria-label={ui(open ? "收起子页面" : "展开子页面")} aria-expanded={open} disabled={!node.children.length || (isLocked && settings?.encrypted_section_show_titles === false)} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (open) next.delete(node.id); else next.add(node.id); return next; })}>{node.children.length ? open ? "▾" : "▸" : "·"}</button>
-        <button className="page-tree-link" title={title} onClick={() => void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.id)}`))}>
+        <button className="page-tree-link" data-page-id={node.id} title={title} onClick={() => void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.id)}`))}>
           <Icon name={isLocked ? "lock" : "notes"} size={15} /><span>{title}</span>
         </button>
         <details className="action-menu page-tree-menu"><summary aria-label={ui("页面操作")}>⋯</summary><div className="action-menu-panel" onClick={(event) => { const details = event.currentTarget.parentElement as HTMLDetailsElement; details.open = false; }}>
