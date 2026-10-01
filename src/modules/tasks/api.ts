@@ -28,10 +28,10 @@ export const taskApi = {
   deleteList: (id: string, confirmNonEmpty: boolean) => invoke<void>("delete_task_list", { id, confirmNonEmpty }),
   create: (listId: string, title: string, parentTaskId: string | null = null) =>
     invoke<Task>("create_task_cmd", { listId, title, parentTaskId }),
-  createMedicationCourse: (input: { listId: string; startDate: string; days: number; titlePrefix: string; medicineName: string | null; doses: MedicationDose[] }) =>
+  createMedicationCourse: (input: { listId: string; startDate: string; days: number; taskName: string; medicalDetails: string | null; doses: MedicationDose[] }) =>
     invoke<Task[]>("create_medication_course_tasks", {
       listId: input.listId, startDate: input.startDate, days: input.days,
-      titlePrefix: input.titlePrefix, medicineName: input.medicineName, doses: input.doses,
+      taskName: input.taskName, medicalDetails: input.medicalDetails, doses: input.doses,
     }),
   update: (id: string, patch: TaskPatch) => invoke<Task>("update_task_cmd", { id, patch }),
   setStatus: (id: string, status: TaskStatus) => invoke<void>("set_task_status_cmd", { id, status }),

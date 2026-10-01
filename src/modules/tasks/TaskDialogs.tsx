@@ -121,7 +121,8 @@ export function MedicationCourseDialog({ lists, listId, onClose, onSaved }: { li
   const [destination, setDestination] = useState(listId);
   const [startDate, setStartDate] = useState(localToday);
   const [days, setDays] = useState("7");
-  const [medicineName, setMedicineName] = useState("");
+  const [taskName, setTaskName] = useState("");
+  const [medicalDetails, setMedicalDetails] = useState("");
   const [doses, setDoses] = useState<MedicationDose[]>([
     { label: ui("早上"), time: "08:00" },
     { label: ui("中午"), time: "13:00" },
@@ -133,14 +134,15 @@ export function MedicationCourseDialog({ lists, listId, onClose, onSaved }: { li
     if (busy) return;
     const dayCount = Number(days);
     if (!destination) return setError(ui("请选择任务列表。"));
+    if (!taskName.trim()) return setError(ui("请输入任务标题。"));
     if (!startDate) return setError(ui("请选择开始日期。"));
     if (!Number.isInteger(dayCount) || dayCount < 1 || dayCount > 365) return setError(ui("疗程天数必须在 1 到 365 天之间。"));
     if (!doses.length || doses.some((dose) => !dose.label.trim() || !dose.time)) return setError(ui("请为每次服药填写名称和时间。"));
     setBusy(true); setError("");
     try {
       const created = await taskApi.createMedicationCourse({
-        listId: destination, startDate, days: dayCount, titlePrefix: ui("服药"),
-        medicineName: medicineName.trim() || null,
+        listId: destination, startDate, days: dayCount,
+        taskName: taskName.trim(), medicalDetails: medicalDetails.trim() || null,
         doses: doses.map((dose) => ({ label: dose.label.trim(), time: dose.time })),
       });
       await onSaved(created[0]?.id ?? "", destination);
@@ -155,8 +157,9 @@ export function MedicationCourseDialog({ lists, listId, onClose, onSaved }: { li
           <label className="task-field task-field-wide"><span>{ui("任务列表")}</span><select value={destination} onChange={(event) => setDestination(event.target.value)} required>{lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label>
           <label className="task-field"><span>{ui("开始日期")}</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></label>
           <label className="task-field"><span>{ui("疗程天数")}</span><input type="number" min="1" max="365" value={days} onChange={(event) => setDays(event.target.value)} required /></label>
-          <label className="task-field task-field-wide"><span>{ui("药品名称（可选）")}</span><input value={medicineName} maxLength={120} onChange={(event) => setMedicineName(event.target.value)} placeholder={ui("例如：药品名称")} /></label>
+          <label className="task-field task-field-wide"><span>{ui("任务名称")} <span className="text-red-600">*</span></span><input value={taskName} maxLength={120} onChange={(event) => setTaskName(event.target.value)} placeholder={ui("例如：药品名称")} required /></label>
         </div>
+        <label className="task-field mt-4"><span>{ui("处方 / 医疗详情（可选）")}</span><textarea rows={3} value={medicalDetails} maxLength={4000} onChange={(event) => setMedicalDetails(event.target.value)} placeholder={ui("补充用药说明或注意事项")} /></label>
         <div className="mt-5 flex items-center"><b className="flex-1 text-sm">{ui("每日服药时间")}</b><button type="button" className="rounded border px-2 py-1 text-xs" disabled={doses.length >= 12} onClick={() => setDoses([...doses, { label: "", time: "" }])}>{ui("添加一次")}</button></div>
         <div className="mt-2 space-y-2">{doses.map((dose, index) => <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2" key={index}>
           <label className="task-field"><span>{ui("服药名称")}</span><input value={dose.label} maxLength={40} onChange={(event) => setDoses(doses.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} required placeholder={ui("例如：早上")}/></label>

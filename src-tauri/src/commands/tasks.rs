@@ -151,8 +151,8 @@ pub fn create_medication_course_tasks(
     list_id: String,
     start_date: String,
     days: u32,
-    title_prefix: String,
-    medicine_name: Option<String>,
+    task_name: String,
+    medical_details: Option<String>,
     doses: Vec<MedicationDoseInput>,
 ) -> Result<Vec<tasks::Task>, VaultError> {
     let doses = doses
@@ -165,8 +165,8 @@ pub fn create_medication_course_tasks(
             &list_id,
             &start_date,
             days,
-            &title_prefix,
-            medicine_name.as_deref(),
+            &task_name,
+            medical_details.as_deref(),
             &doses,
         )
     })

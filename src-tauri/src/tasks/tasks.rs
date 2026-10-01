@@ -109,7 +109,7 @@ fn row_task(r: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     })
 }
 
-const SELECT_TASK: &str = "SELECT id, list_id, title, notes, status, priority, due_date, due_time, reminder_at, recurrence_rule, parent_task_id, sort_order, completed_at, archived_at, created_at, updated_at FROM tasks";
+const SELECT_TASK: &str = "SELECT id, list_id, title, notes, status, COALESCE(priority, 'none'), due_date, due_time, reminder_at, recurrence_rule, parent_task_id, sort_order, completed_at, archived_at, created_at, updated_at FROM tasks";
 
 fn load_task(conn: &Connection, id: &str) -> VaultResult<Task> {
     conn.query_row(
@@ -182,8 +182,8 @@ pub fn create_medication_course(
     list_id: &str,
     start_date: &str,
     days: u32,
-    title_prefix: &str,
-    medicine_name: Option<&str>,
+    task_name: &str,
+    medical_details: Option<&str>,
     doses: &[MedicationDose],
 ) -> VaultResult<Vec<Task>> {
     let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
@@ -198,16 +198,17 @@ pub fn create_medication_course(
             "每天需设置 1 到 12 个服药时间".into(),
         ));
     }
-    let prefix = title_prefix.trim();
-    if prefix.is_empty() || prefix.chars().count() > 40 {
+    let task_name = task_name.trim();
+    if task_name.is_empty() || task_name.chars().count() > 120 {
         return Err(VaultError::Validation(
-            "任务标题前缀不能为空且不能超过 40 个字符".into(),
+            "任务标题不能为空且不能超过 120 个字符".into(),
         ));
     }
-    let medicine = medicine_name.unwrap_or("").trim();
-    if medicine.chars().count() > 120 {
-        return Err(VaultError::Validation("药品名称不能超过 120 个字符".into()));
+    let details = medical_details.unwrap_or("").trim();
+    if details.chars().count() > 4000 {
+        return Err(VaultError::Validation("处方 / 医疗详情不能超过 4000 个字符".into()));
     }
+    let notes = (!details.is_empty()).then_some(details);
     let mut validated_doses = Vec::with_capacity(doses.len());
     for (label, time) in doses {
         let label = label.trim();
@@ -245,17 +246,13 @@ pub fn create_medication_course(
         let date_text = date.format("%Y-%m-%d").to_string();
         for (label, time) in &validated_doses {
             sort_order += 1;
-            let title = if medicine.is_empty() {
-                format!("{prefix} · {label}")
-            } else {
-                format!("{prefix} · {medicine} · {label}")
-            };
+            let title = format!("{task_name} · {label}");
             let id = new_id();
             let reminder_at = format!("{date_text}T{time}:00");
             tx.execute(
-                "INSERT INTO tasks (id, list_id, title, due_date, due_time, reminder_at, sort_order)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![id, list_id, title, date_text, time, reminder_at, sort_order],
+                "INSERT INTO tasks (id, list_id, title, notes, due_date, due_time, reminder_at, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, list_id, title, notes, date_text, time, reminder_at, sort_order],
             )?;
             ids.push(id);
         }

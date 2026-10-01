@@ -76,7 +76,10 @@ export const uiEnglish = {
   "为每次服药创建独立任务，并在设定时间提醒。": "Create a separate task for each dose and get reminded at its scheduled time.",
   "开始日期": "Start date",
   "疗程天数": "Course length (days)",
-  "药品名称（可选）": "Medicine name (optional)",
+  "任务名称": "Task name",
+  "处方 / 医疗详情（可选）": "Prescription / medical details (optional)",
+  "补充用药说明或注意事项": "Add medication instructions or precautions",
+  "数据库操作失败：{p0}": "Database operation failed: {p0}",
   "例如：药品名称": "For example: medicine name",
   "每日服药时间": "Daily dose times",
   "添加一次": "Add dose",
@@ -226,10 +229,11 @@ export function commandErrorCode(error: unknown): string | null {
   try { const value = JSON.parse(String(error)); return typeof value.code === "string" ? value.code : null; } catch { return null; }
 }
 export function uiError(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  const raw = error instanceof Error ? error.message : String(error);
   let payload: { code: string; params?: [string,string][] };
-  try { payload = JSON.parse(String(error)); } catch { return ui("操作失败，请检查输入后重试。"); }
+  try { payload = JSON.parse(raw); } catch { return raw || ui("操作失败，请检查输入后重试。"); }
   const detail = Object.fromEntries(payload.params ?? []).detail;
+  if (payload.code === "sqlite" && detail) return ui("数据库操作失败：{p0}", { p0: detail });
   if (detail === "请先导出并删除或直接删除此分区的加密模板，再移除密码") return ui(detail);
   if (detail === "A template with this name already exists") return ui("模板名称已存在，请使用其他名称。");
   if (detail === "Confirm plaintext template export first") return ui("请先确认将模板导出为明文。");

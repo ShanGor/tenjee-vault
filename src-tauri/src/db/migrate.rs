@@ -70,6 +70,11 @@ impl DbKind {
                     name: "note_sync_trigger",
                     sql: include_str!("../../migrations/tasks/0004_note_sync_trigger.sql"),
                 },
+                Migration {
+                    version: 5,
+                    name: "task_priority_default",
+                    sql: include_str!("../../migrations/tasks/0005_task_priority_default.sql"),
+                },
             ],
             DbKind::Calendar => &[
                 Migration {
