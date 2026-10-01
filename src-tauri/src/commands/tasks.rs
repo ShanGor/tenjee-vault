@@ -70,6 +70,12 @@ pub struct OpenTaskAttachment {
     pub data_base64: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MedicationDoseInput {
+    pub label: String,
+    pub time: String,
+}
+
 #[tauri::command]
 pub fn list_task_lists(state: State<'_, AppState>) -> Result<Vec<lists::TaskList>, VaultError> {
     state.inner.with_tasks(|conn| lists::list_lists(conn))
@@ -140,6 +146,33 @@ pub fn create_task_cmd(
 }
 
 #[tauri::command]
+pub fn create_medication_course_tasks(
+    state: State<'_, AppState>,
+    list_id: String,
+    start_date: String,
+    days: u32,
+    title_prefix: String,
+    medicine_name: Option<String>,
+    doses: Vec<MedicationDoseInput>,
+) -> Result<Vec<tasks::Task>, VaultError> {
+    let doses = doses
+        .into_iter()
+        .map(|dose| (dose.label, dose.time))
+        .collect::<Vec<_>>();
+    state.inner.with_tasks(|conn| {
+        tasks::create_medication_course(
+            conn,
+            &list_id,
+            &start_date,
+            days,
+            &title_prefix,
+            medicine_name.as_deref(),
+            &doses,
+        )
+    })
+}
+
+#[tauri::command]
 pub fn update_task_cmd(
     state: State<'_, AppState>,
     id: String,
@@ -158,8 +191,7 @@ pub fn set_task_status_cmd(
 ) -> Result<(), VaultError> {
     state
         .inner
-        .with_tasks(|conn| tasks::set_task_status(conn, &id, &status))
-        ?;
+        .with_tasks(|conn| tasks::set_task_status(conn, &id, &status))?;
     super::note_tasks::sync(&state.inner)
 }
 
@@ -231,8 +263,7 @@ pub fn batch_tasks(
     let files_dir = state.inner.tasks_files_dir();
     state
         .inner
-        .with_tasks(|conn| tasks::batch(conn, &files_dir, &ids, action))
-        ?;
+        .with_tasks(|conn| tasks::batch(conn, &files_dir, &ids, action))?;
     super::note_tasks::sync(&state.inner)
 }
 

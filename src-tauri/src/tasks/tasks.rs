@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
@@ -69,6 +69,9 @@ pub struct TaskPatch {
     pub list_id: Option<String>,
     pub parent_task_id: Option<Option<String>>,
 }
+
+/// A single daily dose in a finite medication course: `(label, local time)`.
+pub type MedicationDose = (String, String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmartView {
@@ -171,6 +174,94 @@ pub fn create_task(
         params![task.id, task.list_id, task.title, task.priority, task.parent_task_id, task.sort_order],
     )?;
     Ok(task)
+}
+
+/// Create every dose task in a finite medication course atomically.
+pub fn create_medication_course(
+    conn: &mut Connection,
+    list_id: &str,
+    start_date: &str,
+    days: u32,
+    title_prefix: &str,
+    medicine_name: Option<&str>,
+    doses: &[MedicationDose],
+) -> VaultResult<Vec<Task>> {
+    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+        .map_err(|_| VaultError::Validation("疗程开始日期格式非法".into()))?;
+    if days == 0 || days > 365 {
+        return Err(VaultError::Validation(
+            "疗程天数必须在 1 到 365 天之间".into(),
+        ));
+    }
+    if doses.is_empty() || doses.len() > 12 {
+        return Err(VaultError::Validation(
+            "每天需设置 1 到 12 个服药时间".into(),
+        ));
+    }
+    let prefix = title_prefix.trim();
+    if prefix.is_empty() || prefix.chars().count() > 40 {
+        return Err(VaultError::Validation(
+            "任务标题前缀不能为空且不能超过 40 个字符".into(),
+        ));
+    }
+    let medicine = medicine_name.unwrap_or("").trim();
+    if medicine.chars().count() > 120 {
+        return Err(VaultError::Validation("药品名称不能超过 120 个字符".into()));
+    }
+    let mut validated_doses = Vec::with_capacity(doses.len());
+    for (label, time) in doses {
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > 40 {
+            return Err(VaultError::Validation(
+                "每次服药名称不能为空且不能超过 40 个字符".into(),
+            ));
+        }
+        let time = NaiveTime::parse_from_str(time, "%H:%M")
+            .map_err(|_| VaultError::Validation(format!("服药时间 {time} 格式非法")))?;
+        validated_doses.push((label.to_string(), time.format("%H:%M").to_string()));
+    }
+    validated_doses.sort_by(|left, right| left.1.cmp(&right.1));
+    let _last_date = start
+        .checked_add_days(chrono::Days::new((days - 1) as u64))
+        .ok_or_else(|| VaultError::Validation("疗程日期超出可用范围".into()))?;
+
+    let tx = conn.transaction()?;
+    let list_exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM task_lists WHERE id = ?1)",
+        params![list_id],
+        |row| row.get(0),
+    )?;
+    if !list_exists {
+        return Err(VaultError::NotFound(format!("任务列表 {list_id}")));
+    }
+    let mut sort_order: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) FROM tasks WHERE list_id = ?1 AND parent_task_id IS NULL",
+        params![list_id],
+        |row| row.get(0),
+    )?;
+    let mut ids = Vec::with_capacity(days as usize * validated_doses.len());
+    for offset in 0..days {
+        let date = start + chrono::Duration::days(offset as i64);
+        let date_text = date.format("%Y-%m-%d").to_string();
+        for (label, time) in &validated_doses {
+            sort_order += 1;
+            let title = if medicine.is_empty() {
+                format!("{prefix} · {label}")
+            } else {
+                format!("{prefix} · {medicine} · {label}")
+            };
+            let id = new_id();
+            let reminder_at = format!("{date_text}T{time}:00");
+            tx.execute(
+                "INSERT INTO tasks (id, list_id, title, due_date, due_time, reminder_at, sort_order)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![id, list_id, title, date_text, time, reminder_at, sort_order],
+            )?;
+            ids.push(id);
+        }
+    }
+    tx.commit()?;
+    ids.iter().map(|id| load_task(conn, id)).collect()
 }
 
 pub(crate) fn task_exists(conn: &Connection, id: &str) -> VaultResult<bool> {

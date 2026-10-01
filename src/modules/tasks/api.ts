@@ -11,6 +11,7 @@ export interface Task {
 export interface TaskNode extends Task { children: TaskNode[] }
 export interface TaskAttachment { id: string; file_name: string; mime: string | null; size: number; hash: string }
 export interface TaskSearchHit { task_id: string; title: string; snippet: string; archived: boolean }
+export interface MedicationDose { label: string; time: string }
 export type TaskPatch = Partial<{
   title: string; notes: string; clear_notes: boolean; priority: string; due_date: string; clear_due_date: boolean;
   due_time: string; clear_due_time: boolean; reminder_at: string; clear_reminder_at: boolean;
@@ -27,6 +28,11 @@ export const taskApi = {
   deleteList: (id: string, confirmNonEmpty: boolean) => invoke<void>("delete_task_list", { id, confirmNonEmpty }),
   create: (listId: string, title: string, parentTaskId: string | null = null) =>
     invoke<Task>("create_task_cmd", { listId, title, parentTaskId }),
+  createMedicationCourse: (input: { listId: string; startDate: string; days: number; titlePrefix: string; medicineName: string | null; doses: MedicationDose[] }) =>
+    invoke<Task[]>("create_medication_course_tasks", {
+      listId: input.listId, startDate: input.startDate, days: input.days,
+      titlePrefix: input.titlePrefix, medicineName: input.medicineName, doses: input.doses,
+    }),
   update: (id: string, patch: TaskPatch) => invoke<Task>("update_task_cmd", { id, patch }),
   setStatus: (id: string, status: TaskStatus) => invoke<void>("set_task_status_cmd", { id, status }),
   remove: (id: string) => invoke<void>("delete_task_cmd", { id }),

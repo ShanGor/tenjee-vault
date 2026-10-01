@@ -1,5 +1,5 @@
 import { Icon } from "../../shared/Icon";
-import { ListDialog, TaskCreateDialog } from "./TaskDialogs";
+import { ListDialog, MedicationCourseDialog, TaskCreateDialog } from "./TaskDialogs";
 import { ui, uiError } from "../../i18n/ui";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -15,6 +15,7 @@ export function TasksApp() {
   const store = useTaskStore();
   const [listDialog, setListDialog] = useState<{ value?: TaskList } | null>(null);
   const [taskDialog, setTaskDialog] = useState<{ parent?: Task } | null>(null);
+  const [medicationDialog, setMedicationDialog] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [actionError, setActionError] = useState("");
   const [quickSaving, setQuickSaving] = useState(false);
@@ -66,7 +67,7 @@ export function TasksApp() {
       <nav className="space-y-1 border-t p-2 text-sm">{(["kanban", "today", "week", "overdue", "archive", "search"] as View[]).map((item) => <button key={item} onClick={() => { setView(item); setSelectionMode(false); useTaskStore.setState({ selected: new Set() }); }} className={`block w-full rounded px-2 py-1 text-left ${view === item ? "bg-blue-100 dark:bg-blue-900" : ""}`}>{labels[item]}</button>)}</nav>
     </aside>
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className="task-page-header flex items-center gap-2 border-b p-3"><div><h2 className="font-semibold">{view === "list" ? store.lists.find((item) => item.id === store.selectedListId)?.name ?? ui("任务") : labels[view]}</h2>{view === "list" && store.lists.find((item) => item.id === store.selectedListId)?.name === "收件箱" && <p className="task-list-hint">{ui("收件箱是默认任务列表，用来暂存尚未分类的任务。")}</p>}</div><div className="ml-auto flex items-center gap-2">{view === "list" && <><button className="rounded border px-3 py-2 text-xs" onClick={() => setListDialog({ value: store.lists.find((item) => item.id === store.selectedListId) })}>{ui("编辑列表")}</button><button className="rounded border px-3 py-2 text-xs" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); useTaskStore.setState({ selected: new Set() }); }}>{ui(selectionMode ? "退出选择" : "批量选择")}</button></>}<button className="primary-button" disabled={!store.selectedListId} onClick={() => setTaskDialog({})}><Icon name="plus" size={16} />{ui("新建任务")}</button></div></header>
+      <header className="task-page-header flex items-center gap-2 border-b p-3"><div><h2 className="font-semibold">{view === "list" ? store.lists.find((item) => item.id === store.selectedListId)?.name ?? ui("任务") : labels[view]}</h2>{view === "list" && store.lists.find((item) => item.id === store.selectedListId)?.name === "收件箱" && <p className="task-list-hint">{ui("收件箱是默认任务列表，用来暂存尚未分类的任务。")}</p>}</div><div className="ml-auto flex items-center gap-2">{view === "list" && <><button className="rounded border px-3 py-2 text-xs" onClick={() => setListDialog({ value: store.lists.find((item) => item.id === store.selectedListId) })}>{ui("编辑列表")}</button><button className="rounded border px-3 py-2 text-xs" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); useTaskStore.setState({ selected: new Set() }); }}>{ui(selectionMode ? "退出选择" : "批量选择")}</button></>}<button className="rounded border px-3 py-2 text-xs" disabled={!store.selectedListId} onClick={() => setMedicationDialog(true)}>{ui("服药疗程")}</button><button className="primary-button" disabled={!store.selectedListId} onClick={() => setTaskDialog({})}><Icon name="plus" size={16} />{ui("新建任务")}</button></div></header>
       {selectionMode && <div className="task-selection-bar"><span>{ui("已选择 {p0} 项", { p0: store.selected.size })}</span><BatchToolbar refresh={refresh} /></div>}
       {actionError && <p role="alert" className="task-form-error px-6">{actionError}</p>}
       {view === "list" && <><div className="flex gap-2 border-b p-3"><input className="flex-1 rounded border px-3 py-1.5 dark:bg-neutral-900" placeholder={ui("快速添加任务")} value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void quickAdd()} /><button disabled={quickSaving || !quickTitle.trim()} className="rounded bg-blue-600 px-3 text-white" onClick={quickAdd}>{ui("添加")}</button></div><div className="min-h-0 flex-1 overflow-y-auto p-3">{store.tree.map((node, index) => <TaskRow key={node.id} node={node} depth={0} index={index} selectionMode={selectionMode} onCreateChild={(parent) => setTaskDialog({ parent })} onRefresh={store.refresh} />)}</div></>}
@@ -77,6 +78,7 @@ export function TasksApp() {
     </main>
     {listDialog && <ListDialog value={listDialog.value} onClose={() => setListDialog(null)} onDeleted={async () => { await store.loadLists(); useTaskStore.setState({ selectedTaskId: null, selected: new Set() }); setView("list"); }} onSaved={async (id) => { await store.loadLists(); await store.selectList(id); setView("list"); }} />}
     {taskDialog && <TaskCreateDialog lists={store.lists} listId={store.selectedListId ?? ""} parent={taskDialog.parent} onClose={() => setTaskDialog(null)} onSaved={async (id, listId) => { await store.selectList(listId); await loadFlat(view, setFlatTasks); setView("list"); useTaskStore.setState({ selectedTaskId: id }); }} />}
+    {medicationDialog && <MedicationCourseDialog lists={store.lists} listId={store.selectedListId ?? ""} onClose={() => setMedicationDialog(false)} onSaved={async (id, listId) => { await store.selectList(listId); await loadFlat("list", setFlatTasks); setView("list"); if (id) useTaskStore.setState({ selectedTaskId: id }); }} />}
     {selectedTask && <TaskDetails task={selectedTask} onClose={() => useTaskStore.setState({ selectedTaskId: null })} onRefresh={refresh} />}
   </div>;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ui, uiError } from "../../i18n/ui";
 import { Icon } from "../../shared/Icon";
-import { taskApi, type Task, type TaskList, type TaskStatus } from "./api";
+import { taskApi, type MedicationDose, type Task, type TaskList, type TaskStatus } from "./api";
 
 function TaskDialog({ title, description, children, onClose }: { title: string; description: string; children: ReactNode; onClose(): void }) {
   const heading = useId();
@@ -111,6 +111,62 @@ export function TaskCreateDialog({ lists, listId, parent, onClose, onSaved }: { 
         {error && <p role="alert" className="task-form-error">{error}</p>}
       </fieldset>
       <footer className="task-dialog-footer"><button type="button" className="rounded border px-4 py-2" disabled={busy} onClick={onClose}>{ui("取消")}</button><button className="primary-button" disabled={busy}>{ui(busy ? "正在保存…" : "创建任务")}</button></footer>
+    </form>
+  </TaskDialog>;
+}
+
+export function MedicationCourseDialog({ lists, listId, onClose, onSaved }: { lists: TaskList[]; listId: string; onClose(): void; onSaved(id: string, listId: string): Promise<void> }) {
+  const now = new Date();
+  const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const [destination, setDestination] = useState(listId);
+  const [startDate, setStartDate] = useState(localToday);
+  const [days, setDays] = useState("7");
+  const [medicineName, setMedicineName] = useState("");
+  const [doses, setDoses] = useState<MedicationDose[]>([
+    { label: ui("早上"), time: "08:00" },
+    { label: ui("中午"), time: "13:00" },
+    { label: ui("晚上"), time: "20:00" },
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function save() {
+    if (busy) return;
+    const dayCount = Number(days);
+    if (!destination) return setError(ui("请选择任务列表。"));
+    if (!startDate) return setError(ui("请选择开始日期。"));
+    if (!Number.isInteger(dayCount) || dayCount < 1 || dayCount > 365) return setError(ui("疗程天数必须在 1 到 365 天之间。"));
+    if (!doses.length || doses.some((dose) => !dose.label.trim() || !dose.time)) return setError(ui("请为每次服药填写名称和时间。"));
+    setBusy(true); setError("");
+    try {
+      const created = await taskApi.createMedicationCourse({
+        listId: destination, startDate, days: dayCount, titlePrefix: ui("服药"),
+        medicineName: medicineName.trim() || null,
+        doses: doses.map((dose) => ({ label: dose.label.trim(), time: dose.time })),
+      });
+      await onSaved(created[0]?.id ?? "", destination);
+      onClose();
+    } catch (reason) { setError(uiError(reason)); } finally { setBusy(false); }
+  }
+  const taskCount = Number(days) * doses.length;
+  return <TaskDialog title={ui("创建服药疗程")} description={ui("为每次服药创建独立任务，并在设定时间提醒。")} onClose={() => !busy && onClose()}>
+    <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <fieldset disabled={busy} className="task-dialog-body">
+        <div className="task-form-grid">
+          <label className="task-field task-field-wide"><span>{ui("任务列表")}</span><select value={destination} onChange={(event) => setDestination(event.target.value)} required>{lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label>
+          <label className="task-field"><span>{ui("开始日期")}</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></label>
+          <label className="task-field"><span>{ui("疗程天数")}</span><input type="number" min="1" max="365" value={days} onChange={(event) => setDays(event.target.value)} required /></label>
+          <label className="task-field task-field-wide"><span>{ui("药品名称（可选）")}</span><input value={medicineName} maxLength={120} onChange={(event) => setMedicineName(event.target.value)} placeholder={ui("例如：药品名称")} /></label>
+        </div>
+        <div className="mt-5 flex items-center"><b className="flex-1 text-sm">{ui("每日服药时间")}</b><button type="button" className="rounded border px-2 py-1 text-xs" disabled={doses.length >= 12} onClick={() => setDoses([...doses, { label: "", time: "" }])}>{ui("添加一次")}</button></div>
+        <div className="mt-2 space-y-2">{doses.map((dose, index) => <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2" key={index}>
+          <label className="task-field"><span>{ui("服药名称")}</span><input value={dose.label} maxLength={40} onChange={(event) => setDoses(doses.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} required placeholder={ui("例如：早上")}/></label>
+          <label className="task-field"><span>{ui("服药时间")}</span><input type="time" value={dose.time} onChange={(event) => setDoses(doses.map((item, itemIndex) => itemIndex === index ? { ...item, time: event.target.value } : item))} required /></label>
+          <button type="button" className="h-9 rounded border px-2" aria-label={ui("移除此时间")} disabled={doses.length <= 1} onClick={() => setDoses(doses.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+        </div>)}</div>
+        <p className="mt-3 text-xs text-neutral-500">{ui("将创建 {p0} 个任务；每个任务会在服药时间提醒。", { p0: Number.isFinite(taskCount) ? taskCount : 0 })}</p>
+        {error && <p role="alert" className="task-form-error mt-3">{error}</p>}
+      </fieldset>
+      <footer className="task-dialog-footer"><button type="button" className="rounded border px-4 py-2" disabled={busy} onClick={onClose}>{ui("取消")}</button><button className="primary-button" disabled={busy}>{ui(busy ? "正在创建…" : "创建疗程任务")}</button></footer>
     </form>
   </TaskDialog>;
 }

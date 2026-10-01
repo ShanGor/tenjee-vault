@@ -190,6 +190,7 @@ pub fn run() {
             commands::tasks::reorder_task_lists,
             commands::tasks::delete_task_list,
             commands::tasks::create_task_cmd,
+            commands::tasks::create_medication_course_tasks,
             commands::tasks::update_task_cmd,
             commands::tasks::set_task_status_cmd,
             commands::tasks::delete_task_cmd,
