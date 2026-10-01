@@ -31,7 +31,8 @@ export default function App() {
     const fallback = `/${name}`;
     try {
       const saved = localStorage.getItem(`tenjee-vault:last-module-path:${name}`);
-      return saved?.startsWith(fallback) ? saved : fallback;
+      const valid = name === "notes" ? saved?.startsWith("/notes/s/") : saved?.startsWith(fallback);
+      return valid ? saved! : fallback;
     } catch { return fallback; }
   };
 
@@ -87,7 +88,9 @@ export default function App() {
     window.addEventListener("hashchange", onHashChange);
     writeViewState("last-path", path);
     const currentModule = path.startsWith("/tasks") ? "tasks" : path.startsWith("/calendar") ? "calendar" : path.startsWith("/notes") ? "notes" : null;
-    if (currentModule) writeViewState(`last-module-path:${currentModule}`, path);
+    if (currentModule && (currentModule !== "notes" || path.startsWith("/notes/s/"))) {
+      writeViewState(`last-module-path:${currentModule}`, path);
+    }
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [path]);
 

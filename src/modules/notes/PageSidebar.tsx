@@ -19,11 +19,11 @@ export default function PageSidebar() {
   const [expandedBySpace, setExpandedBySpace] = useState<Record<string, string[]>>(() => readViewState("notes-expanded", {}));
   const expanded = new Set(expandedBySpace[spaceId] ?? []);
   function setExpanded(update: (previous: Set<string>) => Set<string>) {
-    setExpandedBySpace((all) => {
-      const next = { ...all, [spaceId]: [...update(new Set(all[spaceId] ?? []))] };
-      writeViewState("notes-expanded", next);
-      return next;
-    });
+    const next = { ...expandedBySpace, [spaceId]: [...update(new Set(expandedBySpace[spaceId] ?? []))] };
+    // Write in the event/effect itself so an immediate module switch cannot unmount
+    // the sidebar before a deferred React updater reaches storage.
+    writeViewState("notes-expanded", next);
+    setExpandedBySpace(next);
   }
   const [target, setTarget] = useState<{ parent: string | null; domain: string } | null>(null);
   const [dialog, setDialog] = useState<{ kind: "protect" | "unlock" | "change" | "remove"; node: SpacePageNode } | null>(null);

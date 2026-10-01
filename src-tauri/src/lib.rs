@@ -47,21 +47,8 @@ pub fn run() {
             let _ = app.emit("app-action", "open-command-palette");
         }))
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
-                    let close_to_tray = commands::settings_of(&state.inner)
-                        .map(|settings| settings.close_to_tray)
-                        .unwrap_or(false);
-                    let tray_available = window
-                        .app_handle()
-                        .try_state::<desktop::DesktopCapabilities>()
-                        .map(|capabilities| capabilities.tray_available())
-                        .unwrap_or(false);
-                    if close_to_tray && tray_available {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                }
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                desktop::quit(&window.app_handle());
             }
         })
         .setup(|app| {

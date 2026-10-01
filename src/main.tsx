@@ -13,7 +13,9 @@ if (!window.location.hash) {
   let lastPath = "/notes";
   try {
     const saved = localStorage.getItem("tenjee-vault:last-path");
-    if (saved?.startsWith("/")) lastPath = saved;
+    if (saved?.startsWith("/tasks") || saved?.startsWith("/calendar") || saved?.startsWith("/settings") || saved?.startsWith("/tags") || saved?.startsWith("/notes/s/")) {
+      lastPath = saved;
+    }
   } catch { /* Use the default route when storage is unavailable. */ }
   window.history.replaceState(null, "", `#${lastPath}`);
 }
