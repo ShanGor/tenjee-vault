@@ -98,6 +98,19 @@ package signing/notarization, OneNote `.one` import, audio recording, or a freef
 import accepts only a safe supported subset, and lunar recurring events must be exported over a
 finite date range as Gregorian instances.
 
+## Planned mobile and local network exchange
+
+The next planned capability adds Android/iOS layouts and an explicit **Find other devices and
+exchange** mode for a phone and laptop on the same reachable local network. Devices pair with a
+random, temporary authentication code, approve on both screens, and synchronize notes, tasks,
+calendar, tags, and attachments in both directions over an authenticated encrypted connection.
+Offline edits and conflicts are preserved; protected page trees remain encrypted and still require
+their own passwords. No account or hosted sync service is required.
+
+These features are planned, not available in v1.0. See [mobile and LAN exchange](docs/mobile-and-lan-sync.md)
+for the mobile layouts, pairing workflow, scope, conflict rules, and recovery behavior, and the
+[OpenSpec proposal](openspec/changes/mobile-and-lan-sync/proposal.md) for implementation planning.
+
 ## v1.0 changes
 
 - Portable note and calendar import/export, printing, verified `.tvault` backups, atomic restore,
