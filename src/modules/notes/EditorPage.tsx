@@ -18,7 +18,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
 import { TextStyle, Color, FontSize } from "@tiptap/extension-text-style";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open, save, finishExport, finishTreeExport, releaseFiles } from "../../shared/nativeFiles";
 
 import { api, BatchResult, ImportedPage, LockedError, NoteExportFormat, Page, PageTitle, PageVersion, bytesToBase64 } from "./api";
 import { registerPageSave, flushPageSave } from "./pageSave";
@@ -136,7 +136,7 @@ export default function EditorPage() {
     editorProps: {
       handleClickOn: (_view, _position, node, _nodePosition, _event, direct) => {
         if (!direct || node.type.name !== "pageLink" || !node.attrs.pageId) return false;
-        void flushPageSave().then(() => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.attrs.pageId)}`));
+        void flushPageSave().then(() => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.attrs.pageId)}`)).catch((error) => setEditError(uiError(error)));
         return true;
       },
       handlePaste: (_view, event) => {
@@ -356,6 +356,7 @@ export default function EditorPage() {
       setPortableStatus(describeImportResult(result));
       await refreshTree();
     } catch (error) { setPortableStatus(ui("导入失败：{p0}", { p0: String(uiError(error)) })); }
+    finally { await releaseFiles(paths); }
   }
 
   async function exportCurrentPage(format: NoteExportFormat) {
@@ -373,8 +374,10 @@ export default function EditorPage() {
         confirmationToken = await api.requestPageExportConfirmation(spaceId, pageId, format, destination.directory, destination.filename);
       }
       await api.exportPage(spaceId, pageId, format, destination.directory, destination.filename, false, confirmationToken);
+      if (!(await finishExport(target))) { setPortableStatus(ui("已取消导出。")); return; }
       setPortableStatus(ui("已导出 {p0} 文件。", { p0: String(format.toUpperCase()) }));
     } catch (error) { setPortableStatus(ui("导出失败：{p0}", { p0: String(uiError(error)) })); }
+    finally { await releaseFiles([destination.directory]); }
   }
 
   async function exportCurrentSubtree(format: NoteExportFormat) {
@@ -382,7 +385,7 @@ export default function EditorPage() {
     const directory = typeof selected === "string" ? selected : null;
     if (!directory) { setPortableStatus(ui("已取消导出。")); return; }
     const name = window.prompt(ui("导出目录名称"), `${title || "pages"}-${format}`)?.trim();
-    if (!name) { setPortableStatus(ui("已取消导出。")); return; }
+    if (!name) { await releaseFiles([directory]); setPortableStatus(ui("已取消导出。")); return; }
     setPortableStatus(ui("正在导出页面树…"));
     try {
       await flushPageSave();
@@ -392,8 +395,10 @@ export default function EditorPage() {
         confirmationToken = await api.requestSubtreeExportConfirmation(spaceId, pageId, format, directory, name);
       }
       await api.exportSubtree(spaceId, pageId, format, directory, name, false, confirmationToken);
+      if (!(await finishTreeExport(directory, name))) { setPortableStatus(ui("已取消导出。")); return; }
       setPortableStatus(ui("已导出页面树 {p0} 文件。", { p0: String(format.toUpperCase()) }));
     } catch (error) { setPortableStatus(ui("页面树导出失败：{p0}", { p0: String(uiError(error)) })); }
+    finally { await releaseFiles([directory]); }
   }
 
   function printCurrentPage() {

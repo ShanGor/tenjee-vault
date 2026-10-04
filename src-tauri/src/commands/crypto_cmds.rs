@@ -32,6 +32,7 @@ pub fn set_section_password_cmd(
     password: String,
     confirm_irrecoverable: bool,
 ) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     if password.is_empty() {
         return Err(VaultError::Validation("密码不能为空".into()));
     }
@@ -55,6 +56,7 @@ pub fn unlock_section_cmd(
         sections_crypto::unlock_keys(conn, &section_id, &password)
     })?;
     state.inner.session.insert(&section_id, keys);
+    if let Err(error)=state.inner.with_space(&space_id, |conn| crate::notes::migrate_titles(conn,&state.inner.session,&section_id)){state.inner.session.lock(&section_id);return Err(error);}
     super::note_tasks::sync(&state.inner)?;
     build_index(&state.inner, &space_id, &section_id)
 }
@@ -95,12 +97,14 @@ pub fn lock_all_sections_cmd(app: AppHandle, state: State<'_, AppState>) -> Resu
 /// 修改密码：验证旧密码后仅重包裹 DSK（会话内 DSK 不变，保持解锁态）。
 #[tauri::command]
 pub fn change_section_password_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     space_id: String,
     section_id: String,
     old_password: String,
     new_password: String,
 ) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     if new_password.is_empty() {
         return Err(VaultError::Validation("新密码不能为空".into()));
     }
@@ -112,11 +116,13 @@ pub fn change_section_password_cmd(
 /// 移除密码：验证后批量解密回明文。
 #[tauri::command]
 pub fn remove_section_password_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     space_id: String,
     section_id: String,
     password: String,
 ) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     state.inner.with_space(&space_id, |conn| {
         let root: Option<String> = conn.query_row(
             "SELECT root_page_id FROM sections WHERE id=?1",
@@ -167,12 +173,14 @@ pub fn generate_password_cmd(length: Option<usize>) -> Result<String, VaultError
 
 #[tauri::command]
 pub fn set_page_password_cmd(
+    app: AppHandle,
     state: State<'_, AppState>,
     space_id: String,
     page_id: String,
     password: String,
     confirm_irrecoverable: bool,
 ) -> VaultResult<()> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     state.inner.with_space(&space_id, |conn| {
         crate::notes::page_tree::protect(
             conn,

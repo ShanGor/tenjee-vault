@@ -194,6 +194,39 @@ fn record_fire(meta: &Connection, candidate: &Candidate) -> VaultResult<()> {
     Ok(())
 }
 
+/// Android owns delivery for this bounded plan; desktop polling remains separate.
+pub fn scheduled_plan(meta: &Connection, tasks: &Connection, calendar: &Connection, horizon: NaiveDateTime)
+    -> VaultResult<(Vec<crate::mobile::reminders::ScheduledReminder>, usize)> {
+    let now = Local::now().naive_local();
+    let zh = meta.query_row("SELECT value FROM app_config WHERE key='runtime_locale'", [], |r| r.get::<_,String>(0))
+        .unwrap_or_else(|_| "en".into()) == "zh-CN";
+    let max_minutes: i64 = calendar.query_row("SELECT COALESCE(MAX(minutes_before),0) FROM event_reminders", [], |r| r.get(0))?;
+    let mut candidates = collect_candidates_through(tasks, calendar, now.date(), now, (horizon + Duration::minutes(max_minutes) + Duration::days(1)).date())?;
+    candidates.retain(|c| c.fire_at <= horizon && (c.fire_at > now || c.relevant_at_startup));
+    candidates.sort_by_key(|c| c.fire_at);
+    let mut plan = Vec::new();
+    let mut deferred = 0;
+    for mut c in candidates {
+        let legacy_fired: bool = meta.query_row("SELECT EXISTS(SELECT 1 FROM reminder_fires WHERE entity_kind=?1 AND entity_id=?2 AND occurrence_key=?3 AND slot=?4)",
+            params![c.entity_kind,c.entity_id,c.occurrence_key,c.slot], |r| r.get(0))?;
+        if legacy_fired && c.fire_at <= now { continue; }
+        c.occurrence_key = format!("{}|{}",c.occurrence_key,c.fire_at.format(TIMESTAMP_FORMAT));
+        let fired: bool = meta.query_row("SELECT EXISTS(SELECT 1 FROM reminder_fires WHERE entity_kind=?1 AND entity_id=?2 AND occurrence_key=?3 AND slot=?4)",
+            params![c.entity_kind,c.entity_id,c.occurrence_key,c.slot], |r| r.get(0))?;
+        if fired { continue; }
+        if plan.len() == 256 { deferred += 1; continue; }
+        let identity = serde_json::to_vec(&(c.entity_kind, &c.entity_id, &c.occurrence_key, c.slot))
+            .map_err(|_| VaultError::Validation("Cannot identify reminder".into()))?;
+        plan.push(crate::mobile::reminders::ScheduledReminder {
+            key: crate::blob_store::hash_hex(&identity), entity_kind:c.entity_kind.into(), entity_id:c.entity_id,
+            occurrence_key:c.occurrence_key, slot:c.slot,
+            title: match (c.entity_kind,zh) { ("task",true)=>"任务提醒",("task",false)=>"Task reminder",(_,true)=>"日程提醒",(_,false)=>"Calendar reminder" }.into(),
+            body:c.body, at:c.fire_at.format(TIMESTAMP_FORMAT).to_string(), when_ms:crate::mobile::reminders::timestamp(c.fire_at)?,
+        });
+    }
+    Ok((plan,deferred))
+}
+
 fn parse_timestamp(value: &str) -> VaultResult<NaiveDateTime> {
     NaiveDateTime::parse_from_str(value, TIMESTAMP_FORMAT)
         .map_err(|_| VaultError::Validation(format!("提醒时间 {value} 非法")))
@@ -231,6 +264,11 @@ fn collect_candidates(
     range_start: NaiveDate,
     now: NaiveDateTime,
 ) -> VaultResult<Vec<Candidate>> {
+    let max_minutes: i64 = calendar.query_row("SELECT COALESCE(MAX(minutes_before),0) FROM event_reminders", [], |r| r.get(0))?;
+    collect_candidates_through(tasks, calendar, range_start, now, (now + Duration::minutes(max_minutes) + Duration::days(1)).date())
+}
+
+fn collect_candidates_through(tasks: &Connection, calendar: &Connection, range_start: NaiveDate, now: NaiveDateTime, range_end: NaiveDate) -> VaultResult<Vec<Candidate>> {
     let mut candidates = Vec::new();
     let mut task_stmt = tasks.prepare(
         "SELECT id, title, reminder_at FROM tasks
@@ -257,12 +295,6 @@ fn collect_candidates(
         });
     }
 
-    let max_minutes: i64 = calendar.query_row(
-        "SELECT COALESCE(MAX(minutes_before), 0) FROM event_reminders",
-        [],
-        |row| row.get(0),
-    )?;
-    let range_end = (now + Duration::minutes(max_minutes) + Duration::days(1)).date();
     for instance in instances_in_range(calendar, range_start, range_end)? {
         let start = instance_start(&instance)?;
         let end = instance_end(&instance)?;

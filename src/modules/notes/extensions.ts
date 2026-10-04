@@ -1,4 +1,5 @@
 import { ui, localizeElement } from "../../i18n/ui";
+import { isAndroid, shareAttachment } from "../../shared/nativeFiles";
 // TipTap 自定义节点扩展：
 // - AttachmentImage：图片走附件内容寻址存储，文档内只存 hash 引用节点（spec 5.3）
 // - PageLink：`[[页面名]]` 双向链接节点（spec 5.4）
@@ -209,10 +210,15 @@ export function AttachmentBlock(deps: {
         localizeElement(openBtn, "打开");
         openBtn.type = "button";
         openBtn.onclick = async () => {
+          if (isAndroid() && !window.confirm(ui("将附件副本分享给其他应用？受保护附件会以明文分享。"))) return;
+          try {
           const data = await deps.openAttachment(node.attrs.attachmentId as string);
+          if (isAndroid()) { await shareAttachment(data, String(node.attrs.fileName)); return; }
           const bytes = base64ToBytes(data.data_base64);
           const url = URL.createObjectURL(new Blob([bytes], { type: data.mime ?? "application/octet-stream" }));
           window.open(url, "_blank");
+          setTimeout(()=>URL.revokeObjectURL(url),60000);
+          } catch(error) {window.dispatchEvent(new CustomEvent("native-file-error",{detail:error}));}
         };
         const delBtn = document.createElement("button");
         localizeElement(delBtn, "删除");

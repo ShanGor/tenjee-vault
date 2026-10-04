@@ -48,6 +48,12 @@ impl DbKind {
                     name: "templates_preferences",
                     sql: include_str!("../../migrations/meta/0004_templates_preferences.sql"),
                 },
+                Migration {
+                    version: 5,
+                    name: "replication",
+                    sql: include_str!("../../migrations/common/replication.sql"),
+                },
+                Migration { version: 6, name: "dependency_groups", sql: include_str!("../../migrations/common/dependency_groups.sql") },
             ],
             DbKind::Tasks => &[
                 Migration {
@@ -75,6 +81,13 @@ impl DbKind {
                     name: "task_priority_default",
                     sql: include_str!("../../migrations/tasks/0005_task_priority_default.sql"),
                 },
+                Migration {
+                    version: 6,
+                    name: "replication",
+                    sql: include_str!("../../migrations/common/replication.sql"),
+                },
+                Migration { version: 7, name: "dependency_groups", sql: include_str!("../../migrations/common/dependency_groups.sql") },
+                Migration { version: 8, name: "note_projection_context", sql: include_str!("../../migrations/tasks/0008_note_projection_context.sql") },
             ],
             DbKind::Calendar => &[
                 Migration {
@@ -92,6 +105,12 @@ impl DbKind {
                     name: "external_uid_taggings",
                     sql: include_str!("../../migrations/calendar/0003_external_uid_taggings.sql"),
                 },
+                Migration {
+                    version: 4,
+                    name: "replication",
+                    sql: include_str!("../../migrations/common/replication.sql"),
+                },
+                Migration { version: 5, name: "dependency_groups", sql: include_str!("../../migrations/common/dependency_groups.sql") },
             ],
             DbKind::Space => &[
                 Migration {
@@ -114,6 +133,14 @@ impl DbKind {
                     name: "page_tree",
                     sql: include_str!("../../migrations/space/0004_page_tree.sql"),
                 },
+                Migration {
+                    version: 5,
+                    name: "replication",
+                    sql: include_str!("../../migrations/common/replication.sql"),
+                },
+                Migration { version: 6, name: "dependency_groups", sql: include_str!("../../migrations/common/dependency_groups.sql") },
+                Migration { version: 7, name: "protected_titles", sql: include_str!("../../migrations/space/0007_protected_titles.sql") },
+                Migration { version: 8, name: "note_projections", sql: include_str!("../../migrations/space/0008_note_projections.sql") },
             ],
         }
     }
@@ -173,6 +200,7 @@ pub fn run_migrations(conn: &mut Connection, migrations: &[Migration]) -> VaultR
         )?;
         tx.commit()?;
     }
+    crate::sync::storage::install(conn)?;
     Ok(())
 }
 
@@ -452,7 +480,7 @@ mod tests {
         )
         .unwrap();
 
-        run_migrations(&mut conn, DbKind::Tasks.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Tasks.migrations()[..4]).unwrap();
         assert_eq!(current_version(&conn).unwrap(), 4);
         let source: (Option<String>, Option<String>) = conn
             .query_row(
@@ -580,7 +608,7 @@ mod tests {
         )
         .unwrap();
 
-        run_migrations(&mut conn, DbKind::Calendar.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Calendar.migrations()[..3]).unwrap();
         assert_eq!(current_version(&conn).unwrap(), 3);
         let uid: Option<String> = conn
             .query_row(
@@ -741,7 +769,7 @@ mod tests {
     fn meta_0004_creates_templates_and_constrains_m4_preferences() {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::connection::configure(&conn).unwrap();
-        run_migrations(&mut conn, DbKind::Meta.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Meta.migrations()[..4]).unwrap();
 
         assert_eq!(current_version(&conn).unwrap(), 4);
         conn.execute(
@@ -799,7 +827,7 @@ mod tests {
         )
         .unwrap();
 
-        run_migrations(&mut conn, DbKind::Meta.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Meta.migrations()[..4]).unwrap();
         let preserved: String = conn
             .query_row(
                 "SELECT value FROM app_config WHERE key = 'default_space_name'",
@@ -810,7 +838,7 @@ mod tests {
         assert_eq!(preserved, "M3 工作区");
         assert_eq!(current_version(&conn).unwrap(), 4);
 
-        run_migrations(&mut conn, DbKind::Meta.migrations()).unwrap();
+        run_migrations(&mut conn, &DbKind::Meta.migrations()[..4]).unwrap();
         let migration_rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
                 row.get(0)

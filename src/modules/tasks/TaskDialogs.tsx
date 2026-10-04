@@ -1,3 +1,4 @@
+import { useMobileDismiss } from "../../shared/useMobileDismiss";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ui, uiError } from "../../i18n/ui";
 import { Icon } from "../../shared/Icon";
@@ -21,6 +22,7 @@ function TaskDialog({ title, description, children, onClose }: { title: string; 
     document.addEventListener("keydown", keyboard);
     return () => { document.removeEventListener("keydown", keyboard); previous?.focus(); };
   }, []);
+  useMobileDismiss(onClose);
   return <div className="task-dialog-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={heading} className="task-dialog">
       <div className="task-dialog-heading"><span className="task-dialog-icon"><Icon name="tasks" size={24} /></span><div><h2 id={heading}>{title}</h2><p>{description}</p></div></div>

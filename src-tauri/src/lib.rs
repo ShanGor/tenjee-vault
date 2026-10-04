@@ -8,6 +8,10 @@ pub mod calendar;
 pub mod commands;
 pub mod crypto;
 pub mod db;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod desktop;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[path = "mobile/desktop.rs"]
 pub mod desktop;
 pub mod error;
 pub mod notes;
@@ -15,29 +19,31 @@ pub mod portability;
 pub mod remind;
 pub mod search;
 pub mod tags;
+pub mod sync;
+pub mod mobile;
 pub mod tasks;
 #[cfg(test)]
 mod release_tests;
 
 use commands::AppState;
 use tauri::{Emitter, Manager};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tauri_plugin_notification::NotificationExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::SIZE,
-                )
-                .build(),
-        )
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(mobile::init());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
+        .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(
+            tauri_plugin_window_state::StateFlags::POSITION | tauri_plugin_window_state::StateFlags::SIZE,
+        ).build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -50,8 +56,10 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 desktop::quit(&window.app_handle());
             }
-        })
+        });
+    builder
         .setup(|app| {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if !commands::release_probe_enabled() { let _ = app.notification().request_permission(); }
             let app_data = std::env::var_os("TENJEE_RELEASE_PROBE_DIR").map(std::path::PathBuf::from)
                 .unwrap_or_else(|| app.path().app_data_dir().expect("无法确定应用数据目录"));
@@ -73,6 +81,8 @@ pub fn run() {
                 report.alerts.push(alert);
             }
             let state = AppState::init(root, report).expect("应用状态初始化失败");
+            #[cfg(not(target_os = "android"))]
+            {
             let reminder_inner = state.inner.clone();
             let reminder_app = app.handle().clone();
             let reminder_service = remind::ReminderService::new(
@@ -102,6 +112,7 @@ pub fn run() {
                     }
                 }
             });
+            }
             // 后台巡检线程：闲置超时锁定的最终裁决（前端心跳之外的双保险，design D2）。
             // 锁定结果由前端心跳/命令响应感知（线程无事件通道）。
             let inner = state.inner.clone();
@@ -126,6 +137,15 @@ pub fn run() {
                                 .emit("backup-status", format!("automatic backup failed: {error}"));
                         }
                     }
+                    #[cfg(target_os = "android")]
+                    {
+                        let result = commands::settings_of(&scheduler_inner).and_then(|settings| {
+                            if !settings.auto_backup_enabled { return Ok(()); }
+                            scheduler_app.state::<mobile::NativeServices>().0.run_mobile_plugin::<serde_json::Value>("publishBackups", serde_json::json!({"retention":settings.auto_backup_retention_count}))
+                                .map(|_| ()).map_err(|_| error::VaultError::Validation("Backup copy pending: check the Android folder permission and storage".into()))
+                        });
+                        if let Err(error) = result { let _ = scheduler_app.emit("backup-status", format!("automatic backup failed: {error}")); }
+                    }
                     for _ in 0..60 {
                         if scheduler_inner.backup_scheduler_stopped() {
                             break;
@@ -135,11 +155,33 @@ pub fn run() {
                 }
             });
             app.manage(state);
+            app.manage(sync::session::ExchangeManager::default());
             app.manage(desktop::DesktopCapabilities::default());
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             desktop::install(&app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            sync::conflicts::exchange_keep_both_cmd,
+            sync::conflicts::exchange_conflicts_cmd,
+            sync::conflicts::exchange_resolve_cmd,
+            sync::session::exchange_discard_pending_cmd,
+            sync::session::exchange_available_cmd,
+            sync::session::exchange_enter_cmd,
+            sync::session::exchange_status_cmd,
+            sync::session::exchange_connect_cmd,
+            sync::session::exchange_approve_cmd,
+            sync::session::exchange_stop_cmd,
+            mobile::files::mobile_file_workspace_cmd,
+            mobile::files::mobile_pick_files_cmd,
+            mobile::files::mobile_export_file_cmd,
+            mobile::files::mobile_release_files_cmd,
+            mobile::files::mobile_zip_export_cmd,
+            mobile::files::mobile_share_bytes_cmd,
+            mobile::files::mobile_backup_directory_cmd,
+            mobile::reminders::mobile_reminders_reconcile_cmd,
+            mobile::reminders::mobile_alarm_settings_cmd,
+            commands::mobile_exit_cmd,
             commands::ping,
             commands::release_probe_enabled,
             commands::release_probe_ready,
@@ -281,6 +323,7 @@ pub fn run() {
         .run(|app, event| {
             // 应用退出：全量锁定（密钥清零 + 内存索引随进程退出销毁，design D2/D4）
             if let tauri::RunEvent::Exit = event {
+                if let Some(manager)=app.try_state::<sync::session::ExchangeManager>() {manager.stop();}
                 if let Some(state) = app.try_state::<AppState>() {
                     state.inner.session.lock_all();
                     state.inner.stop_backup_scheduler();

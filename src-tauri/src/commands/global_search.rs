@@ -52,7 +52,7 @@ fn notes_for_space(
                 id: hit.page_id.clone(),
                 title: hit.title,
                 snippet: hit.snippet,
-                context: format!("{} / {}",space.name,crate::notes::page_tree::path(conn,&hit.page_id).unwrap_or_default()),
+                context: format!("{} / {}",space.name,crate::notes::page_tree::path(conn,&inner.session,&hit.page_id).unwrap_or_default()),
                 score: score(index, count),
                 route: format!("#/notes/s/{}/page/{}", space.id, hit.page_id),
             })

@@ -33,3 +33,11 @@ Each installation SHALL maintain a distinct replica identity and monotonically a
 #### Scenario: Restore the same backup on two devices
 - **WHEN** two installations restore the same backup and independently edit a page
 - **THEN** their new revisions have different origins, exchange detects concurrency, and no edit is skipped because their counters coincide
+
+### Requirement: Explicit protected-title storage format
+
+The system SHALL version the page schema with an explicit title ciphertext flag. Legacy protected titles SHALL remain readable only following local unlock and SHALL migrate atomically before their domain is exchanged. New protected writes SHALL store encrypted titles and their flag in the same transaction.
+
+#### Scenario: Upgrade existing protected pages
+- **WHEN** an existing installation upgrades without unlocking its protected pages
+- **THEN** its page IDs and key material remain unchanged and title migration awaits a successful local unlock

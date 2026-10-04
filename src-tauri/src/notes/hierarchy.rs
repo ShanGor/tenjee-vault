@@ -468,6 +468,10 @@ pub fn create_page(
     parent_page_id: Option<&str>,
     title: &str,
 ) -> VaultResult<PageSummary> {
+    create_page_prepared(conn,section_id,parent_page_id,title,false)
+}
+
+pub(crate) fn create_page_prepared(conn:&Connection,section_id:&str,parent_page_id:Option<&str>,title:&str,title_is_encrypted:bool)->VaultResult<PageSummary> {
     let page = PageSummary {
         id: new_id(),
         section_id: section_id.to_string(),
@@ -477,8 +481,8 @@ pub fn create_page(
         updated_at: String::new(),
     };
     conn.execute(
-        "INSERT INTO pages (id, section_id, parent_page_id, title, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![page.id, page.section_id, page.parent_page_id, page.title, page.sort_order],
+        "INSERT INTO pages (id, section_id, parent_page_id, title, sort_order, title_is_encrypted) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![page.id, page.section_id, page.parent_page_id, page.title, page.sort_order,title_is_encrypted],
     )?;
     Ok(page)
 }

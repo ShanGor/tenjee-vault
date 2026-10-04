@@ -27,3 +27,5 @@ Tenjee Vault currently targets desktop and stores independent local workspaces. 
 ## Impact
 
 Frontend: app shell, notes navigation/editor, tasks/detail/creation, calendar, settings, localization, and sync/conflict views. Rust: platform-gated desktop plugins, mobile permissions/lifecycle, new discovery/transport/replication modules, and migrations across meta/tasks/calendar/space databases. All mutation paths, attachments, backup/restore, and existing task-to-note queues need replication integration. Discovery and established PAKE/secure transport dependencies require compatibility and security review before implementation. The existing page-tree and medication-task changes are already implemented and must remain supported; this proposal does not rewrite those changes or claim that mobile/sync has shipped.
+
+Protected titles will use explicit ciphertext storage. Existing plaintext titles in protected trees migrate transactionally after successful local unlock; those trees remain pending for exchange until migrated.

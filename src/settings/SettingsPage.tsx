@@ -1,6 +1,8 @@
 import { ui, getUILocale } from "../i18n/ui";
 import { useEffect, useState } from "react";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open, save, finishExport, releaseFiles, isAndroid } from "../shared/nativeFiles";
+import { invoke } from "@tauri-apps/api/core";
+import { ReminderSettings } from "../shared/ReminderSettings";
 import { api, type AppSettings, type BackupSummary, type RestoreDiagnostic } from "../modules/notes/api";
 import { usePreferences } from "../i18n";
 import { ACTIONS, type ActionId } from "../shared/actions";
@@ -74,6 +76,11 @@ export default function SettingsPage() {
   }
 
   async function chooseBackupDirectory() {
+    if (isAndroid()) {
+      try { const directory = await invoke<string | null>("mobile_backup_directory_cmd"); if (directory) await set("auto_backup_directory", directory); }
+      catch (error) { setNotice({tone:"error", text:formatError(error)}); }
+      return;
+    }
     const picked = await open({ directory: true, multiple: false, title: ui("选择自动备份目录") });
     if (typeof picked === "string") await set("auto_backup_directory", picked);
   }
@@ -97,12 +104,14 @@ export default function SettingsPage() {
         result = await api.createBackup(target.directory, target.filename, true);
       }
       const verified = await api.verifyBackup(target.directory, target.filename);
-      setSummary(result);
+      if (!(await finishExport(selected))) { setNotice({ tone: "info", text: ui("已取消导出。") }); return; }
+      setSummary(isAndroid() ? {...result,path:ui("已保存到系统选择的位置")} : result);
       setNotice({ tone: "success", text: ui("备份已验证：{p0} 个文件，创建于 {p1}。", { p0: String(verified.files), p1: String(new Date(verified.created_at).toLocaleString(getUILocale())) }) });
     } catch (error) {
       setNotice({ tone: "error", text: ui("备份未完成：{p0}", { p0: String(formatError(error)) }) });
     } finally {
       setBusy(null);
+      await releaseFiles([target.directory]);
     }
   }
 
@@ -121,6 +130,7 @@ export default function SettingsPage() {
       setNotice({ tone: "error", text: ui("恢复预检失败：{p0}", { p0: String(formatError(error)) }) });
     } finally {
       setBusy(null);
+      await releaseFiles([selected]);
     }
   }
 
@@ -134,6 +144,7 @@ export default function SettingsPage() {
 
   if (!settings) return <main className="p-6">{t("settings.loading")}</main>;
   return <main className="settings-page mx-auto max-w-3xl space-y-6 p-6" aria-labelledby="settings-title">
+    <ReminderSettings />
     <div><h1 id="settings-title" className="text-2xl font-semibold">{t("settings.title")}</h1><p className="mt-1 text-sm text-neutral-500">{t("settings.local-only")}</p></div>
     <section className="rounded-lg border p-4"><h2>{t("settings.security")}</h2><div className="mt-3 grid gap-3">
       <label>{t("settings.auto-lock")} <input className="rounded border p-1" type="number" min="1" value={settings.section_auto_lock_minutes} onChange={(event) => void set("section_auto_lock_minutes",event.target.value)} /></label>
@@ -148,7 +159,7 @@ export default function SettingsPage() {
     </div></section>
     {notice && <div role="status" className={`rounded border p-3 text-sm ${notice.tone === "error" ? "border-red-300 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200" : notice.tone === "success" ? "border-green-300 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200" : "border-blue-300 bg-blue-50 text-blue-800"}`}>{notice.text}</div>}
     <section className="rounded-lg border p-4"><h2 className="text-lg font-medium">{t("settings.manual-backup")}</h2><p className="mt-1 text-sm text-neutral-500">{t("settings.manual-backup-description")}</p><button className="mt-3 rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50" disabled={busy !== null} onClick={() => void createManualBackup()}>{busy === "backup" ? t("settings.backup-creating") : t("settings.backup-now")}</button>{summary && <p className="mt-3 text-sm"><code>{summary.path}</code>（{summary.files}{ui("个文件，")}{readableBytes(summary.total_bytes)}）。</p>}</section>
-    <section className="rounded-lg border p-4"><h2 className="text-lg font-medium">{t("settings.auto-backup")}</h2><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2"><input type="checkbox" checked={settings.auto_backup_enabled} onChange={(event) => void set("auto_backup_enabled", String(event.target.checked))} />{t("settings.enable-auto-backup")}</label><label>{t("settings.schedule")}<select className="ml-2 rounded border p-1" value={settings.auto_backup_schedule} onChange={(event) => void set("auto_backup_schedule", event.target.value)}><option value="daily">{t("settings.daily")}</option><option value="weekly">{t("settings.weekly")}</option></select></label><label className="sm:col-span-2">{t("settings.directory")}<div className="mt-1 flex gap-2"><input className="min-w-0 flex-1 rounded border p-2" readOnly value={settings.auto_backup_directory || t("settings.not-selected")} /><button className="rounded border px-3" onClick={() => void chooseBackupDirectory()}>{t("settings.choose")}</button></div></label><label>{t("settings.retention")}<input className="ml-2 w-20 rounded border p-1" min="1" max="365" type="number" value={settings.auto_backup_retention_count} onChange={(event) => void set("auto_backup_retention_count", event.target.value)} /></label><p className="self-end text-sm text-neutral-500">{t("settings.last-success", { value: settings.auto_backup_last_success_at ? new Date(settings.auto_backup_last_success_at).toLocaleString(getUILocale()) : t("settings.never") })}</p></div></section>
+    <section className="rounded-lg border p-4"><h2 className="text-lg font-medium">{t("settings.auto-backup")}</h2><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="flex items-center gap-2"><input type="checkbox" checked={settings.auto_backup_enabled} onChange={(event) => void set("auto_backup_enabled", String(event.target.checked))} />{t("settings.enable-auto-backup")}</label><label>{t("settings.schedule")}<select className="ml-2 rounded border p-1" value={settings.auto_backup_schedule} onChange={(event) => void set("auto_backup_schedule", event.target.value)}><option value="daily">{t("settings.daily")}</option><option value="weekly">{t("settings.weekly")}</option></select></label><label className="sm:col-span-2">{t("settings.directory")}<div className="mt-1 flex gap-2"><input className="min-w-0 flex-1 rounded border p-2" readOnly value={settings.auto_backup_directory ? (isAndroid() ? ui("已选择系统备份文件夹") : settings.auto_backup_directory) : t("settings.not-selected")} /><button className="rounded border px-3" onClick={() => void chooseBackupDirectory()}>{t("settings.choose")}</button></div></label><label>{t("settings.retention")}<input className="ml-2 w-20 rounded border p-1" min="1" max="365" type="number" value={settings.auto_backup_retention_count} onChange={(event) => void set("auto_backup_retention_count", event.target.value)} /></label><p className="self-end text-sm text-neutral-500">{t("settings.last-success", { value: settings.auto_backup_last_success_at ? new Date(settings.auto_backup_last_success_at).toLocaleString(getUILocale()) : t("settings.never") })}</p></div></section>
     <section className="rounded-lg border p-4"><h2 className="text-lg font-medium">{t("settings.shortcuts")}</h2><p className="mt-1 text-sm text-neutral-500">{t("settings.shortcuts-note")}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{ACTIONS.map((action) => { let current: ShortcutMap = defaultShortcuts(); try { current = { ...current, ...JSON.parse(settings.app_shortcuts) }; } catch { /* use defaults */ } return <label key={action.id} className="text-sm"><span>{t(action.label)}</span><input className="mt-1 block w-full rounded border p-2" key={settings.app_shortcuts} defaultValue={current[action.id] ?? ""} placeholder="Mod+Shift+K" onBlur={(event) => void saveShortcut(action.id, event.target.value)} /></label>; })}</div></section>
     <section className="rounded-lg border p-4"><h2 className="text-lg font-medium">{t("settings.appearance")}</h2><div className="mt-3 flex flex-wrap gap-4"><label>{t("settings.language")}<select className="ml-2 rounded border p-1" value={preferences.locale} onChange={(event) => void preferences.setLocale(event.target.value as typeof preferences.locale).catch((error) => setNotice({ tone: "error", text: formatError(error) }))}><option value="system">{t("locale.system")}</option><option value="zh-CN">{t("locale.zh-CN")}</option><option value="en">{t("locale.en")}</option></select></label><label>{t("settings.theme")}<select className="ml-2 rounded border p-1" value={preferences.theme} onChange={(event) => void preferences.setTheme(event.target.value as typeof preferences.theme).catch((error) => setNotice({ tone: "error", text: formatError(error) }))}><option value="system">{t("theme.system")}</option><option value="light">{t("theme.light")}</option><option value="dark">{t("theme.dark")}</option></select></label></div></section>
     <section className="rounded-lg border border-red-300 p-4"><h2 className="text-lg font-medium text-red-700 dark:text-red-300">{t("settings.restore")}</h2><p className="mt-1 text-sm text-neutral-500">{t("settings.restore-description")}</p><button className="mt-3 rounded border border-red-500 px-3 py-2 text-red-700 disabled:opacity-50 dark:text-red-300" disabled={busy !== null} onClick={() => void prepareRestore()}>{busy === "restore" ? t("settings.restore-checking") : t("settings.restore-choose")}</button><button className="ml-2 rounded border px-3 py-2" onClick={() => void clearRecoveryCopies()}>{t("settings.restore-clear")}</button>{diagnostic && <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100"><div className="mt-1">{diagnostic.message}</div><code className="mt-1 block break-all text-xs">{diagnostic.failed_candidate}</code></div>}</section>

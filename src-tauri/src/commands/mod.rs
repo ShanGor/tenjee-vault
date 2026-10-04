@@ -12,6 +12,14 @@ pub mod templates;
 pub mod note_tasks;
 
 #[tauri::command]
+pub fn mobile_exit_cmd(app: tauri::AppHandle) {
+    #[cfg(target_os = "android")]
+    crate::desktop::quit(&app);
+    #[cfg(not(target_os = "android"))]
+    let _ = app;
+}
+
+#[tauri::command]
 pub fn release_probe_enabled() -> bool { std::env::var_os("TENJEE_RELEASE_PROBE_DIR").is_some() }
 
 #[tauri::command]
@@ -69,6 +77,7 @@ pub struct AppState {
 pub struct AppStateInner {
     pub root: PathBuf,
     pub report: StartupReport,
+    pub replica_id: String,
     /// 所有数据库访问都先取得共享锁；备份/恢复以独占锁冻结一个一致窗口。
     /// 若需要同时持有多个数据库锁，固定顺序是 meta → tasks → calendar → space id。
     maintenance: RwLock<()>,
@@ -101,7 +110,10 @@ impl AppState {
         run_migrations(&mut tasks, DbKind::Tasks.migrations())?;
         let mut calendar = connection::open_db(&root.join(layout::CALENDAR_DB))?;
         run_migrations(&mut calendar, DbKind::Calendar.migrations())?;
+        let replica_id = crate::sync::storage::installation_origin(&root)?;
+        for (conn,store) in [(&meta,"meta"), (&tasks,"tasks"), (&calendar,"calendar")] { crate::sync::storage::set_origin(conn, &format!("{replica_id}-{store}"))?; }
         let inner = AppStateInner {
+            replica_id,
             root,
             report,
             maintenance: RwLock::new(()),
@@ -114,6 +126,8 @@ impl AppState {
             export_confirmations: Mutex::new(HashMap::new()),
             backup_scheduler_stop: AtomicBool::new(false),
         };
+        crate::sync::engine::cleanup_snapshots(&inner)?;
+        crate::sync::engine::recover(&inner)?;
         let empty = inner
             .with_meta(|meta| registry::list_spaces(meta))?
             .is_empty();
@@ -196,6 +210,26 @@ impl AppStateInner {
             .lock()
             .map_err(|_| VaultError::Validation("日程库锁中毒".into()))?;
         f(&meta, &mut tasks, &mut calendar)
+    }
+
+    /// One consistent workspace window for exchange inventories and recovery.
+    /// Network I/O must happen after this closure releases the maintenance gate.
+    pub fn with_workspace<R>(&self, f: impl FnOnce(&mut Connection,&mut Connection,&mut Connection,&mut HashMap<String,Connection>) -> VaultResult<R>) -> VaultResult<R> {
+        let _maintenance=self.maintenance_write()?;
+        let mut meta=self.meta()?;
+        let mut tasks=self.tasks.lock().map_err(|_|VaultError::Validation("Task store lock failed".into()))?;
+        let mut calendar=self.calendar.lock().map_err(|_|VaultError::Validation("Calendar store lock failed".into()))?;
+        let mut spaces=self.spaces()?;
+        let mut infos=registry::list_spaces(&meta)?; infos.sort_by(|a,b|a.id.cmp(&b.id));
+        for info in infos {
+            if !spaces.contains_key(&info.id) {
+                let mut conn=connection::open_db(&self.root.join(&info.db_file))?;
+                run_migrations(&mut conn,DbKind::Space.migrations())?;
+                crate::sync::storage::set_origin(&conn,&format!("{}-{}",self.replica_id,info.id))?;
+                spaces.insert(info.id,conn);
+            }
+        }
+        f(&mut meta,&mut tasks,&mut calendar,&mut spaces)
     }
 
     /// Freeze all mutation access briefly and copy every registered SQLite database through the
@@ -415,6 +449,7 @@ impl AppStateInner {
         if !spaces.contains_key(space_id) {
             let mut conn = connection::open_db(&self.root.join(&info.db_file))?;
             run_migrations(&mut conn, DbKind::Space.migrations())?;
+            crate::sync::storage::set_origin(&conn, &format!("{}-{}",self.replica_id,space_id))?;
             spaces.insert(space_id.to_string(), conn);
         }
         let conn = spaces
@@ -763,37 +798,27 @@ pub fn rename_space_cmd(
 
 /// 归档：移出注册表，库文件保留（spec: 归档的空间数据保留、可恢复）。
 #[tauri::command]
-pub fn archive_space_cmd(state: State<'_, AppState>, id: String) -> Result<(), VaultError> {
-    state
-        .inner
-        .with_meta(|meta| registry::archive_space(meta, &id))?;
-    state.inner.spaces()?.remove(&id);
-    Ok(())
+pub fn archive_space_cmd(app:tauri::AppHandle,state: State<'_, AppState>, id: String) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
+    state.inner.with_workspace(|meta,_,_,spaces|{
+        crate::sync::engine::incorporate_space_contexts(meta,spaces)?;
+        registry::archive_space(meta,&id)?;spaces.remove(&id);Ok(())
+    })
 }
 
-/// 删除：确认后移除注册表并删除库文件与附件目录（spec: 删除空间的确认与清理）。
+/// Delete after recording causal knowledge of the full owning space.
 #[tauri::command]
-pub fn delete_space_cmd(state: State<'_, AppState>, id: String) -> Result<(), VaultError> {
-    let info = state
-        .inner
-        .with_meta(|meta| registry::get_space(meta, &id))?
-        .ok_or_else(|| VaultError::NotFound(format!("空间 {id}")))?;
-    state.inner.spaces()?.remove(&id);
-    state
-        .inner
-        .with_meta(|meta| registry::archive_space(meta, &id))?; // 先移出注册表
-    let db_path = state.inner.root.join(&info.db_file);
-    for suffix in ["", "-wal", "-shm"] {
-        let p = std::path::PathBuf::from(format!("{}{suffix}", db_path.display()));
-        if p.exists() {
-            std::fs::remove_file(p)?;
-        }
-    }
-    let files_dir = state.inner.files_dir(&id);
-    if files_dir.exists() {
-        std::fs::remove_dir_all(&files_dir)?;
-    }
-    Ok(())
+pub fn delete_space_cmd(app:tauri::AppHandle,state: State<'_, AppState>, id: String) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
+    state.inner.with_workspace(|meta,_,_,spaces|{
+        let info=registry::get_space(meta,&id)?.ok_or_else(||VaultError::NotFound("Space".into()))?;
+        crate::sync::engine::incorporate_space_contexts(meta,spaces)?;
+        registry::archive_space(meta,&id)?;spaces.remove(&id);
+        let db_path=state.inner.root.join(&info.db_file);
+        for suffix in ["","-wal","-shm"] {let path=PathBuf::from(format!("{}{suffix}",db_path.display()));if path.exists(){std::fs::remove_file(path)?;}}
+        let files=state.inner.files_dir(&id);if files.exists(){std::fs::remove_dir_all(files)?;}
+        Ok(())
+    })
 }
 
 /// 兜底：注册表为空时创建默认空间（应用启动已自动执行，供前端刷新用）。

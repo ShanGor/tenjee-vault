@@ -29,6 +29,8 @@ export default function PageSidebar() {
   const [dialog, setDialog] = useState<{ kind: "protect" | "unlock" | "change" | "remove"; node: SpacePageNode } | null>(null);
   const [deleting, setDeleting] = useState<SpacePageNode | null>(null);
   const [error, setError] = useState("");
+  const [moving, setMoving] = useState<SpacePageNode | null>(null);
+  const [parentId, setParentId] = useState("");
   const { prompt, element } = usePrompt();
   const nodes = tree?.pages ?? [];
   const locked = (node: SpacePageNode) => node.is_encrypted && !unlocked.includes(node.section_id);
@@ -90,7 +92,7 @@ export default function PageSidebar() {
   function render(node: SpacePageNode, depth: number, index: number) {
     const isLocked = locked(node);
     const open = expanded.has(node.id);
-    const title = isLocked && settings?.encrypted_section_show_titles === false ? ui("受保护页面") : node.title || ui("（无标题）");
+    const title = isLocked ? ui("受保护页面") : node.title || ui("（无标题）");
     return <div key={node.id}>
       <div className="page-drop-target" onDragOver={(event) => event.preventDefault()} onDrop={(event) => void move(event, node.parent_page_id, index)} />
       <div className={`page-tree-row ${node.id === pageId ? "active" : ""}`} style={{ paddingLeft: 6 + depth * 14 }} draggable={!isLocked} onKeyDown={(event) => handleTreeKeyDown(event, node)}
@@ -103,6 +105,9 @@ export default function PageSidebar() {
         <details className="action-menu page-tree-menu"><summary aria-label={ui("页面操作")}>⋯</summary><div className="action-menu-panel" onClick={(event) => { const details = event.currentTarget.parentElement as HTMLDetailsElement; details.open = false; }}>
           <button disabled={isLocked} onClick={() => add(node)}>{ui("新建子页面")}</button>
           <button disabled={isLocked} onClick={() => void act(async () => { const name = await prompt(ui("重命名页面"), ui("标题"), node.title); if (name?.trim()) { await api.renamePage(spaceId, node.id, name.trim()); await refreshTree(); } })}>{ui("重命名")}</button>
+          <button disabled={isLocked} onClick={() => { setMoving(node); setParentId(node.parent_page_id ?? ""); }}>{ui("移动页面")}</button>
+          <button disabled={isLocked || index === 0} onClick={() => void act(async () => { await api.movePage(spaceId, node.id, node.parent_page_id, index - 1); await refreshTree(); })}>{ui("向上移动")}</button>
+          <button disabled={isLocked} onClick={() => void act(async () => { await api.movePage(spaceId, node.id, node.parent_page_id, index + 1); await refreshTree(); })}>{ui("向下移动")}</button>
           <button disabled={isLocked} onClick={() => void act(async () => { await api.movePage(spaceId, node.id, null, nodes.length); await refreshTree(); })}>{ui("移到空间顶层")}</button>
           {node.is_encrypted ? <>
             <button onClick={() => isLocked ? setDialog({ kind: "unlock", node }) : void act(async () => { await api.lockSection(spaceId, node.section_id); await refreshTree(); })}>{ui(isLocked ? "解锁" : "锁定")}</button>
@@ -126,6 +131,13 @@ export default function PageSidebar() {
       <button className="mt-2 flex w-full items-center gap-2 rounded border px-2 py-1.5 text-sm" disabled={!tree || loading || !spaceId} onClick={() => add(null)}><Icon name="plus" size={15} />{ui("新建页面")}</button>
     </div>
     {error && <p role="alert" className="mt-2 px-2 text-sm text-red-600">{error}</p>}
+    {moving && <div className="task-dialog-overlay"><section className="task-dialog" role="dialog" aria-modal="true" aria-label={ui("移动页面")}>
+      <div className="task-dialog-heading"><h2>{ui("移动页面")}</h2></div>
+      <div className="task-dialog-body"><label className="task-field">{ui("父页面")}<select value={parentId} onChange={(event) => setParentId(event.target.value)}>
+        <option value="">{ui("移到空间顶层")}</option>
+        {(() => { const flatten = (items: SpacePageNode[]): SpacePageNode[] => items.flatMap((node) => [node, ...flatten(node.children)]); const excluded = new Set(flatten([moving]).map((node) => node.id)); return flatten(nodes).filter((node) => !excluded.has(node.id)).map((node) => <option key={node.id} value={node.id}>{pagePath(nodes, node.id).map((parent) => parent.title).join(" / ")}</option>); })()}
+      </select></label></div><footer className="task-dialog-footer"><button onClick={() => setMoving(null)}>{ui("取消")}</button><button onClick={() => void act(async () => { await api.movePage(spaceId, moving.id, parentId || null, 2147483647); await refreshTree(); setMoving(null); })}>{ui("移动")}</button></footer>
+    </section></div>}
     {element}
     {target && <TemplateDialog spaceId={spaceId} sectionId={target.domain} parentPageId={target.parent} onClose={() => setTarget(null)} onCreated={async (page) => { setTarget(null); await refreshTree(); navigate(`/s/${spaceId}/page/${page.id}`); }} />}
     {dialog?.kind === "protect" && <SetPasswordDialog spaceId={spaceId} pageId={dialog.node.id} onClose={() => setDialog(null)} />}

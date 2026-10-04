@@ -183,7 +183,8 @@ pub fn apply_pending_restore(root: &Path) -> VaultResult<bool> {
     let install = (|| -> VaultResult<()> {
         injected_failure("after_previous_rename")?;
         fs::rename(&staging, root)?;
-        validate_after_install(root)
+        validate_after_install(root)?;
+        crate::sync::storage::rotate_installation_origin(root)
     })();
     match install {
         Ok(()) => {

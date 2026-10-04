@@ -1,6 +1,6 @@
 # Mobile experience and local network exchange
 
-Status: planned, 2026-10-02. These capabilities are specified for a future release and are not present in the current desktop release. The normative requirements and implementation plan are in [the mobile-and-lan-sync change](../openspec/changes/mobile-and-lan-sync/proposal.md), its [specifications](../openspec/changes/mobile-and-lan-sync/specs/), [design](../openspec/changes/mobile-and-lan-sync/design.md), and [tasks](../openspec/changes/mobile-and-lan-sync/tasks.md).
+Status: implementation in progress, 2026-10-03. Adaptive layouts, Android native files/reminders, and development-only LAN exchange are implemented; see [Android build and install instructions](android-development.md). Native mobile support and LAN exchange are not available in the current release. See the [implementation status](../openspec/changes/mobile-and-lan-sync/implementation-notes.md) and [pairing implementation notes](lan-pairing-implementation.md). The normative requirements and implementation plan are in [the mobile-and-lan-sync change](../openspec/changes/mobile-and-lan-sync/proposal.md), its [specifications](../openspec/changes/mobile-and-lan-sync/specs/), [design](../openspec/changes/mobile-and-lan-sync/design.md), and [tasks](../openspec/changes/mobile-and-lan-sync/tasks.md).
 
 ## Product direction
 
@@ -21,8 +21,8 @@ Phone layouts target 320–600 CSS px, tablet layouts 601–900, and wide layout
 
 ## Find other devices and exchange
 
-1. Connect the phone and laptop to the same reachable local network and open **Find other devices and exchange** on both. On a phone, find it under **More**; on desktop, under **Settings → Device exchange**.
-2. Choose **Receive connection** on one device. It displays a temporary eight-digit code, including any leading zeros, and advertises itself locally.
+1. Connect the phone and laptop to the same reachable local network and open **Find other devices and exchange** on both. On a phone, find it under **More**; on desktop, use **Device exchange** in navigation or Settings. Both devices must run compatible development builds.
+2. Choose **Start exchange mode** on both devices. Select one device as the receiver. It displays a temporary eight-digit code, including any leading zeros, and advertises itself locally.
 3. On the other device, select the receiver from nearby devices and enter the code shown on its screen. If discovery fails, use the receiver's local address and port.
 4. Both devices show the authenticated peer, full-workspace exchange scope, and change/conflict summary. Approve on both to begin.
 5. Changes transfer in both directions. Progress shows records and attachments; the result distinguishes applied changes, conflicts, pending changes, and failures.
@@ -46,7 +46,7 @@ sequenceDiagram
     Note over Phone,Laptop: Show results and conflicts; close session
 ```
 
-The code is valid for five minutes, single use, and invalidated after five failed authentication attempts in total. It authenticates a secure session rather than acting as a note password. Codes are not sent as plaintext, advertised, logged, or saved. A password-authenticated key exchange protects short-code pairing against passive offline guessing; the protocol choice and transport binding require implementation review. [RFC 9382 describes one candidate, SPAKE2](https://www.rfc-editor.org/rfc/rfc9382).
+The code is valid for five minutes, single use, and invalidated after five failed authentication attempts in total. It authenticates a secure session rather than acting as a note password. Codes are not sent as plaintext, advertised, logged, or saved. A password-authenticated key exchange protects short-code pairing against passive offline guessing; the protocol choice and transport binding require implementation review. The implementation uses OPAQUE over TLS 1.3; see [the composition and outstanding acceptance](lan-pairing-implementation.md).
 
 No device is discoverable or accepts sync connections outside exchange mode. Stop, completion, app closure/suspension, or 30 minutes without transfer/user activity ends authorization. Sync history is retained for efficient deltas, but does not grant permission to reconnect automatically. Network access is confined to local interfaces with no cloud relay or router port mapping. Being on the same router is insufficient if guest isolation or a firewall blocks peers; show practical guidance and a manual-address fallback. Never weaken authentication to work around discovery failure.
 

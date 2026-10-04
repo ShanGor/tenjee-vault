@@ -1,8 +1,11 @@
+import { useLocation } from "react-router-dom";
+import { NavigationDrawer } from "../../shared/NavigationDrawer";
+import { useCompactLayout } from "../../shared/useCompactLayout";
 import { usePrompt } from "./usePrompt";
 import { flushPageSave } from "./pageSave";
 import PageSidebar from "./PageSidebar";
 import { Icon } from "../../shared/Icon";
-import { ui } from "../../i18n/ui";
+import { ui, uiError } from "../../i18n/ui";
 // 应用外壳：空间侧栏（栏 1）、心跳巡检、锁定事件同步（spec 6.2）。
 
 import { useEffect, useState } from "react";
@@ -14,6 +17,11 @@ import { ConfirmDialog } from "./dialogs";
 
 export default function AppShell() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const compact = useCompactLayout();
+  const [navigationError, setNavigationError] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname, compact]);
   const { spaceId = "" } = useParams();
   const { spaces, currentSpaceId, settings, refreshSpaces, selectSpace, loadSettings, refreshTree, removeUnlocked } =
     useNotesStore();
@@ -87,8 +95,9 @@ export default function AppShell() {
   }, []);
 
   async function onSpaceChange(id: string) {
-    await flushPageSave();
-    navigate(`/s/${id}`);
+    setNavigationError("");
+    try { await flushPageSave(); navigate(`/s/${id}`); }
+    catch (error) { setNavigationError(uiError(error)); }
   }
 
   async function addSpace() {
@@ -110,7 +119,9 @@ export default function AppShell() {
 
   return (
     <div className="flex h-full flex-col text-neutral-900 dark:text-neutral-100">
+      {navigationError && <p role="alert" className="navigation-error">{navigationError}</p>}
       <header className="workspace-toolbar flex items-center gap-3 border-b px-4 py-2">
+        {compact && <button aria-label={ui("打开页面导航")} onClick={() => setDrawerOpen(true)}>☰</button>}
         <span className="workspace-label">{ui("空间")}</span>
         <select
           aria-label={ui("空间")}
@@ -127,6 +138,7 @@ export default function AppShell() {
         <button className="rounded border px-2 py-1 text-sm" onClick={addSpace}>{ui("＋空间")}</button>
         {spaceId && (
           <details className="action-menu"><summary aria-label={ui("更多")}>⋯</summary><div className="action-menu-panel">
+            {compact && <button onClick={addSpace}>{ui("新建空间")}</button>}
             <button
               className="rounded border px-2 py-1 text-sm"
               title={ui("重命名空间")}
@@ -168,14 +180,23 @@ export default function AppShell() {
 
       <div className="flex min-h-0 flex-1">
         {/* 栏 1：空间内页面树 + 全局视图入口 */}
-        <aside className="notes-navigation flex w-64 shrink-0 flex-col border-r">
+        {!compact && <aside className="notes-navigation flex w-64 shrink-0 flex-col border-r">
           <nav className="space-y-0.5 p-2">
             <NavLink to="/recent" className={linkCls}><Icon name="recent" />{ui("最近使用")}</NavLink>
             <NavLink to="/search" className={linkCls}><Icon name="search" />{ui("搜索")}</NavLink>
             <NavLink to="/trash" className={linkCls}><Icon name="trash" />{ui("回收站")}</NavLink>
           </nav>
           <PageSidebar />
-        </aside>
+        </aside>}
+        {compact && drawerOpen && <NavigationDrawer title={ui("页面导航")} onClose={() => setDrawerOpen(false)}>
+          <nav className="space-y-0.5 p-2">
+            <NavLink to="/recent" className={linkCls}><Icon name="recent" />{ui("最近使用")}</NavLink>
+            <NavLink to="/search" className={linkCls}><Icon name="search" />{ui("搜索")}</NavLink>
+            <NavLink to="/trash" className={linkCls}><Icon name="trash" />{ui("回收站")}</NavLink>
+          </nav>
+          <PageSidebar />
+        </NavigationDrawer>}
+
 
         <main className="flex min-w-0 flex-1 flex-col">
           <Outlet />

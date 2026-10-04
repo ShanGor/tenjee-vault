@@ -37,7 +37,7 @@ pub fn get_tree(state: State<'_, AppState>, space_id: String) -> Result<TreeDto,
     need(&state.inner, &space_id)?;
     let tree = state
         .inner
-        .with_space(&space_id, |conn| page_tree::tree(conn))?;
+        .with_space(&space_id, |conn| {let mut tree=page_tree::tree(conn)?;page_tree::hydrate(conn,&state.inner.session,&mut tree)?;Ok(tree)})?;
     Ok(TreeDto {
         pages: tree,
         unlocked_section_ids: state.inner.session.unlocked_section_ids(),
@@ -52,7 +52,7 @@ pub fn get_page_tree(
 ) -> Result<Vec<hierarchy::PageNode>, VaultError> {
     state
         .inner
-        .with_space(&space_id, |conn| hierarchy::page_tree(conn, &section_id))
+        .with_space(&space_id, |conn| {let mut tree=hierarchy::page_tree(conn,&section_id)?;page_tree::hydrate_legacy(conn,&state.inner.session,&mut tree)?;Ok(tree)})
 }
 
 pub(crate) fn rebuild_indexes(
@@ -101,7 +101,7 @@ pub fn get_page_metadata_cmd(
 ) -> VaultResult<page_tree::Node> {
     state
         .inner
-        .with_space(&space_id, |conn| page_tree::metadata(conn, &page_id))
+        .with_space(&space_id, |conn| {let mut node=page_tree::metadata(conn,&page_id)?;node.page.title=crate::notes::visible_title(conn,&state.inner.session,&page_id)?;Ok(node)})
 }
 
 #[tauri::command]
@@ -375,13 +375,15 @@ pub fn rename_page_cmd(
                 .session
                 .with_dsk(&node.page.section_id, |_| Ok(()))?;
         }
-        hierarchy::rename_page(conn, &id, title.trim())?;
+        let stored=crate::notes::protect_content(&state.inner.session,&node.page.section_id,node.is_encrypted,title.trim())?;
+        conn.execute("UPDATE pages SET title=?1,title_is_encrypted=?2,updated_at=datetime('now') WHERE id=?3",rusqlite::params![stored,node.is_encrypted,id])?;
         refresh_page_index(&state.inner, conn, &id)
     })
 }
 
 #[tauri::command]
 pub fn move_page_cmd(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     space_id: String,
     id: String,
@@ -389,6 +391,7 @@ pub fn move_page_cmd(
     parent_page_id: Option<String>,
     sort_order: i64,
 ) -> Result<(), VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     let _ = section_id;
     state.inner.with_space(&space_id, |conn| {
         page_tree::move_subtree(
@@ -454,7 +457,10 @@ pub fn list_trash_cmd(
                 domain.is_none_or(|(domain,encrypted)| !encrypted || state.inner.session.is_unlocked(&domain))
             });
             for row in &mut rows {
-                row["path"] = serde_json::json!(page_tree::path(conn,row["id"].as_str().unwrap_or(""))?);
+                {
+                    row["title"]=serde_json::json!(crate::notes::visible_title(conn,&state.inner.session,row["id"].as_str().unwrap_or(""))?);
+                }
+                row["path"] = serde_json::json!(page_tree::path(conn,&state.inner.session,row["id"].as_str().unwrap_or(""))?);
             }
             Ok(rows)
         })
@@ -790,12 +796,7 @@ pub fn list_recent_cmd(
             continue;
         }
         let title = state.inner.with_space(&space_id, |conn| {
-            let t: String = conn.query_row(
-                "SELECT title FROM pages WHERE id = ?1",
-                rusqlite::params![page_id],
-                |r| r.get(0),
-            )?;
-            Ok(t)
+            crate::notes::visible_title(conn,&state.inner.session,&page_id)
         });
         let Ok(title) = title else { continue };
         out.push(RecentEntry {
@@ -910,7 +911,7 @@ pub fn list_page_titles_cmd(
              ))",
         )?;
         let unlocked_json = serde_json::to_string(&unlocked).unwrap_or_else(|_| "[]".to_string());
-        let rows = stmt
+        let mut rows = stmt
             .query_map(rusqlite::params![unlocked_json], |r| {
                 Ok(PageTitle {
                     id: r.get(0)?,
@@ -919,6 +920,7 @@ pub fn list_page_titles_cmd(
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        for row in &mut rows {row.title=crate::notes::visible_title(conn,&state.inner.session,&row.id)?;}
         Ok(rows)
     })
 }
@@ -1028,7 +1030,7 @@ pub fn search_notes_cmd(
         out.push(SearchResultDto {
             path: state
                 .inner
-                .with_space(&space_id, |conn| page_tree::path(conn, &hit.page_id))?,
+                .with_space(&space_id, |conn| page_tree::path(conn, &state.inner.session, &hit.page_id))?,
             page_id: hit.page_id,
             section_id: hit.section_id.clone(),
             section_name: section_name.clone(),

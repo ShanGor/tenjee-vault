@@ -80,3 +80,7 @@ Local restore remains a separate destructive operation. Sync metadata is include
 - [Tauri platform overview](https://v2.tauri.app/start/) and [plugin support table](https://v2.tauri.app/plugin/).
 - [Tauri mobile prerequisites](https://v2.tauri.app/start/prerequisites/).
 - [RFC 9382: SPAKE2](https://www.rfc-editor.org/rfc/rfc9382), describing password-authenticated key exchange and mutual key confirmation.
+
+### Protected title migration
+
+Protected page titles use the same domain DSK encryption as content, with an explicit `title_is_encrypted` storage flag. Creating, saving, renaming, moving, protecting, and removing protection must preserve this invariant. Existing protected titles migrate in one transaction after successful local unlock, without changing entity IDs, body ciphertext, or wrapped keys. Locked navigation uses a neutral label; the existing locked-title preference now controls whether the neutral tree structure can expand, rather than disclosing titles; decrypted titles and search indexes remain in memory. Legacy protected trees are pending for exchange until migration completes, including legacy replication conflict payloads that still contain plaintext titles.

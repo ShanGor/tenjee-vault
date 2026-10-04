@@ -48,6 +48,13 @@ pub fn refcount(conn: &Connection, hash: &str) -> VaultResult<i64> {
 
 /// 引用计数归零后物理移除文件（行删除由调用方先行完成）。
 pub fn remove_if_unref(dir: &Path, conn: &Connection, hash: &str) -> VaultResult<()> {
+    let replicated: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='sync_conflicts')", [], |r|r.get(0))?;
+    if replicated {
+        let retained: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sync_conflicts WHERE entity='attachments' AND json_extract(payload,'$.hash')=?1)", [hash], |r|r.get(0))?;
+        if retained { return Ok(()); }
+        let groups: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='sync_domain_variants')", [], |r|r.get(0))?;
+        if groups && conn.query_row("SELECT EXISTS(SELECT 1 FROM sync_domain_variants v,json_tree(v.payload) j WHERE j.key='hash' AND j.value=?1)", [hash], |r|r.get::<_,bool>(0))? { return Ok(()); }
+    }
     if refcount(conn, hash)? == 0 {
         let path = blob_path(dir, hash);
         if path.exists() {

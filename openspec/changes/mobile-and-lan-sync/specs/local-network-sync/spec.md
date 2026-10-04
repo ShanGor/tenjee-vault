@@ -77,3 +77,5 @@ The system SHALL validate protocol and schema compatibility before workspace wri
 #### Scenario: Incompatible application versions
 - **WHEN** peers have incompatible sync protocol or entity schemas
 - **THEN** exchange stops before writing workspace data and both devices receive an upgrade explanation
+
+Legacy protected domains with unmigrated plaintext titles SHALL remain pending until successful local unlock migrates those titles; inventory SHALL NOT disclose their title payloads.

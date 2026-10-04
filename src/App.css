@@ -447,3 +447,135 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
 .page-markdown-content { display: flex; min-height: 100%; flex-direction: column; }
 .markdown-source { display: block; width: 100%; min-height: 24rem; flex: 1; resize: vertical; border: 0; outline: none; background: transparent; color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.75; tab-size: 2; }
 @media print { .page-mode-switch, .page-markdown-content { display: none !important; } .page-rich-content[hidden] { display: block !important; } }
+
+/* Available width selects the layout; native platform selects capabilities. */
+.compact-only { display: none; }
+.vault-app { min-width: 0; }
+.navigation-error { margin: 0; padding: 10px 16px; color: #b91c1c; }
+.more-page { padding: 20px; max-width: 700px; margin: auto; }
+.more-page h1 { font-size: 24px; margin-bottom: 20px; }
+.more-page > a, .more-page > button { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 56px; border-bottom: 1px solid var(--color-border); text-align: left; }
+.navigation-drawer-overlay { position: fixed; inset: 0; z-index: 65; background: #102e2560; }
+.navigation-drawer { display: flex; flex-direction: column; width: min(360px, 94vw); height: var(--visible-height, 100dvh); padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); background: var(--color-surface); overflow: hidden; }
+.drawer-heading { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+.drawer-heading h2 { flex: 1; font-weight: 600; }
+.drawer-heading button { font-size: 26px; }
+.navigation-drawer .page-sidebar { overflow: auto; }
+.navigation-drawer .action-menu-panel { position: fixed; right: 12px; left: 12px; top: auto; max-height: 65dvh; overflow-y: auto; z-index: 70; }
+.calendar-more .action-menu-panel { width: min(300px, calc(100vw - 24px)); }
+.calendar-more .action-menu-panel > div { display: grid; margin-left: 0; }
+.calendar-dialog { width: min(34rem, calc(100vw - 24px)); }
+.task-mobile-selector { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
+.task-mobile-selector label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.task-mobile-selector select { flex: 1; min-width: 0; }
+.kanban-status-navigation { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px; }
+.kanban-status-navigation button[aria-pressed="true"] { color: var(--color-accent); background: var(--color-blue-50); }
+.compact-month { width: 100%; }
+.compact-month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); padding: 8px; gap: 2px; }
+.compact-month-grid .weekday-label { text-align: center; padding: 8px 0; font-size: 12px; color: var(--color-muted); }
+.compact-month-grid button { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50px; border-radius: 10px; }
+.compact-month-grid button[aria-pressed="true"] { background: var(--color-accent); color: var(--color-accent-contrast); }
+.compact-month-grid button[data-today="true"] { outline: 1px solid var(--color-accent); outline-offset: -2px; }
+.compact-month-grid .outside-month { opacity: .5; }
+.date-activity { font-size: 12px; line-height: 10px; height: 10px; }
+.compact-day-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-block: 1px solid var(--color-border); }
+.compact-day-heading p { font-size: 12px; color: var(--color-muted); }
+.compact-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; padding: 6px; }
+.compact-week button { font-size: 11px; }
+.compact-week button[aria-pressed="true"] { color: var(--color-accent); background: var(--color-blue-50); }
+
+@media (min-width: 601px) and (max-width: 900px) {
+  .app-navigation { gap: 8px; padding: 10px 12px; flex-wrap: nowrap; }
+  .app-brand > span:last-child { display: none; }
+  .module-links { order: initial; width: auto; }
+  .module-link { padding: 8px; gap: 4px; }
+  .module-notes .notes-navigation { width: 210px; }
+  .task-details { position: fixed; right: 0; top: 72px; bottom: 0; z-index: 30; box-shadow: -8px 0 30px #102e2520; }
+}
+
+@media (max-width: 600px) {
+  html, body, #root { overflow: hidden; }
+  .vault-app { height: var(--visible-height, 100dvh); }
+  .compact-only { display: inline-flex; }
+  .app-navigation { min-height: 56px; flex-wrap: nowrap; padding: calc(6px + env(safe-area-inset-top)) 12px 6px; gap: 8px; }
+  .app-brand { font-size: 15px; min-width: 0; margin-right: auto; }
+  .brand-mark { height: 30px; width: 30px; border-radius: 9px; font-size: 20px; }
+  .module-links { display: none; }
+  .command-trigger { margin-left: 0; border: 0; }
+  .mobile-navigation { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom); border-top: 1px solid var(--color-border); background: var(--color-surface); }
+  .mobile-navigation a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; font-size: 11px; color: var(--color-muted); }
+  .mobile-navigation a[aria-current="page"] { color: var(--color-accent); background: var(--color-blue-50); }
+  .dark .mobile-navigation a[aria-current="page"] { background: #24483b; }
+  .keyboard-open .mobile-navigation { display: none; }
+  .module-content { min-width: 0; overflow-x: hidden; }
+  .module-notes > div > div, .module-tasks > div { overflow-x: hidden; }
+  .module-notes main { min-width: 0; }
+  .module-tasks main { width: 100%; min-width: 0; }
+  button, summary, .action-menu > summary { min-height: 44px; min-width: 44px; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea { font-size: 16px !important; min-height: 44px; max-width: 100%; }
+  input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
+  input:not([type="checkbox"]):not([type="radio"]) { min-width: 0; }
+  .workspace-toolbar { padding: 6px 12px; gap: 6px; flex-wrap: nowrap; }
+  .workspace-toolbar select { flex: 1; min-width: 0; width: 0; }
+  .workspace-label, .workspace-toolbar > button:not(:first-child), .workspace-toolbar > span:last-child > label { display: none; }
+  .workspace-toolbar > span:last-child { margin-left: 0; }
+  .workspace-toolbar > span:last-child button { font-size: 0; padding: 8px; }
+  .workspace-toolbar > span:last-child svg { width: 20px; height: 20px; }
+  .page-tree-row, .page-tree-link { min-height: 44px; }
+  .page-tree-toggle { min-width: 32px; }
+  .page-breadcrumbs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .page-breadcrumbs > * { flex-shrink: 0; }
+  .page-breadcrumbs button { min-height: 32px; }
+  .editor-heading { padding: 8px 12px; flex-wrap: wrap; }
+  .editor-heading input { min-width: 0; width: 100%; }
+  .page-formatting-toolbar { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .page-formatting-toolbar > * { flex-shrink: 0; }
+  .page-document-content { padding: 12px 16px 48px; }
+  .prose-editor .tableWrapper { overflow-x: auto; max-width: 100%; }
+  .prose-editor img { max-width: 100%; }
+  .prose-editor pre { overflow-x: auto; }
+  .notes-welcome { padding: 24px 16px; }
+  .task-page-header { padding: 12px 16px !important; }
+  .task-page-header > div:last-child { flex-wrap: wrap; margin-left: 0; width: 100%; }
+  .module-tasks main > div { padding-left: 12px; padding-right: 12px; }
+  .task-icon-button { width: 44px; height: 44px; visibility: visible !important; }
+  .task-drag-handle { display: none; }
+  .task-selection-bar { flex-wrap: wrap; gap: 8px; }
+  .task-selection-bar > div { flex-wrap: wrap; margin-left: 0; }
+  .task-details { position: fixed; inset: 0; z-index: 50; width: 100%; height: var(--visible-height, 100dvh); padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); border: 0; }
+  .task-details > div.grid, .task-form-grid { grid-template-columns: 1fr; }
+  .task-dialog-overlay { padding: 0; align-items: stretch; }
+  .task-dialog { width: 100%; max-height: var(--visible-height, 100dvh); height: var(--visible-height, 100dvh); border-radius: 0 !important; }
+  .task-dialog-heading { padding-top: calc(16px + env(safe-area-inset-top)); }
+  .task-dialog-footer { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .calendar-toolbar { padding: 8px 12px; gap: 6px; }
+  .calendar-toolbar > b { font-size: 12px; margin-right: 0; }
+  .calendar-toolbar select { width: auto; flex: 1; }
+  .calendar-create { font-size: 12px; }
+  .calendar-month { min-width: 0; }
+  .calendar-agenda { padding: 0; }
+  .calendar-agenda > button, .calendar-agenda > div { gap: 10px; align-items: flex-start; }
+  .calendar-agenda time { width: 95px; flex-shrink: 0; font-size: 11px; overflow-wrap: anywhere; }
+  .calendar-agenda .truncate { white-space: normal; }
+  .calendar-dialog-overlay { align-items: stretch; }
+  .calendar-dialog { width: 100%; max-height: var(--visible-height, 100dvh); border-radius: 0 !important; padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); }
+  .calendar-dialog .grid { grid-template-columns: 1fr; }
+  .calendar-dialog .col-span-2 { grid-column: span 1; }
+  .calendar-dialog > div:last-child { flex-wrap: wrap; }
+  .settings-page { padding: 16px 12px 32px; }
+  .settings-page > section { padding: 16px; }
+  .settings-page label { overflow-wrap: anywhere; }
+  .settings-page .ml-2 { margin-left: 0; }
+  .module-tags main { padding: 16px; }
+  .module-tags main a { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .more-page { padding-bottom: 32px; }
+  [role="dialog"] { max-width: 100vw; }
+}
+
+@media (max-width: 600px) {
+  .notes-dialog { width: calc(100% - 24px); max-height: calc(var(--visible-height, 100dvh) - 32px); overflow-y: auto; }
+  .settings-page .grid > *, .settings-page .flex > * { min-width: 0; }
+  .settings-page .grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-page label.flex { flex-wrap: wrap; }
+  .settings-page input[readonly] { width: 0; }
+}

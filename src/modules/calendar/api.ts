@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../shared/mobileReminders";
 
 export interface EventRecord {
   id: string; title: string; description: string | null; location: string | null;

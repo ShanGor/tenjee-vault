@@ -55,11 +55,11 @@ pub fn link(inner: &AppStateInner, space: &str, page_id: &str, node_id: &str, li
 /// queued state intact if another status change arrives while the page is being updated.
 pub fn sync(inner: &AppStateInner) -> VaultResult<()> {
     let queued = inner.with_tasks(|conn| {
-        let mut statement = conn.prepare("SELECT q.id,q.task_id,q.source_page_ref,q.source_node_id,q.checked FROM note_sync_queue q JOIN tasks t ON t.id=q.task_id WHERE q.status='pending' AND t.source_page_ref=q.source_page_ref AND t.source_node_id=q.source_node_id ORDER BY q.created_at,q.id")?;
-        let rows = statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,bool>(4)?)))?.collect::<Result<Vec<_>,_>>()?;
+        let mut statement = conn.prepare("SELECT q.id,q.task_id,q.source_page_ref,q.source_node_id,q.checked,q.source_context FROM note_sync_queue q JOIN tasks t ON t.id=q.task_id WHERE q.status='pending' AND t.source_page_ref=q.source_page_ref AND t.source_node_id=q.source_node_id ORDER BY q.created_at,q.id")?;
+        let rows = statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,bool>(4)?,row.get::<_,Option<String>>(5)?)))?.collect::<Result<Vec<_>,_>>()?;
         Ok(rows)
     })?;
-    for (queue_id,task_id,reference,node_id,checked) in queued {
+    for (queue_id,task_id,reference,node_id,checked,source_context) in queued {
         let result = (|| {
             let (space,page_id) = reference.split_once(':').ok_or_else(invalid)?;
             inner.with_space(space, |conn| {
@@ -71,13 +71,14 @@ pub fn sync(inner: &AppStateInner) -> VaultResult<()> {
                 }
                 node["attrs"]["taskId"] = Value::String(task_id.clone());
                 node["attrs"]["checked"] = Value::Bool(checked);
-                pages::save_page(conn,&inner.session,page_id,&page.title,&document.to_string())
+                conn.execute("INSERT INTO note_task_projections(task_id,page_id,node_id,checked,source_context) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(task_id,page_id,node_id) DO UPDATE SET checked=excluded.checked,source_context=excluded.source_context",params![task_id,page_id,node_id,checked,source_context.as_deref().unwrap_or("{}")])?;
+                Ok(())
             })
         })();
         match result {
-            Ok(()) => inner.with_tasks(|conn| { conn.execute("DELETE FROM note_sync_queue WHERE id=?1 AND checked=?2",params![queue_id,checked])?; Ok(()) })?,
-            Err(VaultError::SectionLocked(_)) => {},
-            Err(_) => inner.with_tasks(|conn| { conn.execute("UPDATE note_sync_queue SET status='failed',attempts=attempts+1,last_error='source_unavailable' WHERE id=?1 AND checked=?2",params![queue_id,checked])?; Ok(()) })?,
+            Ok(()) => inner.with_tasks(|conn| { conn.execute("DELETE FROM note_sync_queue WHERE id=?1 AND checked=?2 AND source_context IS ?3",params![queue_id,checked,source_context])?; Ok(()) })?,
+            Err(VaultError::SectionLocked(_) | VaultError::NotFound(_)) => {},
+            Err(_) => inner.with_tasks(|conn| { conn.execute("UPDATE note_sync_queue SET status='failed',attempts=attempts+1,last_error='source_unavailable' WHERE id=?1 AND checked=?2 AND source_context IS ?3",params![queue_id,checked,source_context])?; Ok(()) })?,
         }
     }
     Ok(())

@@ -21,3 +21,15 @@ The system SHALL synchronize protected page trees, versions, templates, and atta
 #### Scenario: Protection races with an ordinary edit
 - **WHEN** one replica protects a tree while another edits its previously ordinary content and no local protection key is available
 - **THEN** that dependency group remains pending with the original revisions preserved on their sources until local unlock permits encrypted conflict storage, and the receiver creates no new plaintext conflict body for the protected tree
+
+### Requirement: Encrypted protected titles and unlock-time migration
+
+The system SHALL encrypt protected page titles under their domain DSK and record an explicit ciphertext flag. It SHALL migrate legacy protected titles transactionally following successful local password unlock. It SHALL withhold unmigrated protected trees from exchange and use neutral locked navigation labels. Removing protection SHALL decrypt titles locally; moving a page SHALL transform its title with its content into the target domain.
+
+#### Scenario: Unlock an existing protected tree
+- **WHEN** a password successfully unlocks a protected tree containing legacy plaintext titles
+- **THEN** its titles are encrypted transactionally before replication eligibility and only decrypted locally for unlocked views
+
+#### Scenario: Exchange before legacy title migration
+- **WHEN** a protected tree still contains a legacy plaintext title
+- **THEN** that tree remains pending without transferring the title, while independent data may exchange

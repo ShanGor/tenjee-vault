@@ -66,6 +66,7 @@ pub fn prepare_restore_cmd(
     directory: String,
     filename: String,
 ) -> Result<String, VaultError> {
+    crate::sync::session::before_protection(&app,&state.inner)?;
     let marker = crate::db::restore::prepare_restore(
         &state.inner.root,
         &selected_backup_path(&directory, &filename)?,

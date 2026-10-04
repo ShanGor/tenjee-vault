@@ -176,6 +176,7 @@ pub fn install(app: &tauri::AppHandle) {
                 "toggle" => {
                     if let Some(window) = app.get_webview_window("main") {
                         if window.is_visible().unwrap_or(false) {
+                            if let Some(exchange)=app.try_state::<crate::sync::session::ExchangeManager>(){exchange.cancel("App hidden; fresh pairing is required");}
                             let _ = window.hide();
                         } else {
                             show_and_focus(app);

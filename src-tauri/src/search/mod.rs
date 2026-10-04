@@ -190,8 +190,9 @@ fn search_one_table(
     fts_query: &str,
     limit: usize,
 ) -> VaultResult<Vec<SearchHit>> {
+    let title_source=if table=="pages_fts" {"p.title".to_string()} else {format!("{table}.title")};
     let sql = format!(
-        "SELECT p.id, p.section_id, p.title,
+        "SELECT p.id, p.section_id, {title_source},
                 snippet({table}, 1, '<mark>', '</mark>', '…', 16) AS snippet
          FROM {table} JOIN pages p ON p.rowid = {table}.rowid
          WHERE {table} MATCH ?1
@@ -204,7 +205,7 @@ fn search_one_table(
             Ok(SearchHit {
                 page_id: r.get(0)?,
                 section_id: r.get(1)?,
-                title: r.get(2)?,
+                title: desegment_cjk(&r.get::<_,String>(2)?),
                 snippet: desegment_cjk(&r.get::<_, String>(3)?),
             })
         })?

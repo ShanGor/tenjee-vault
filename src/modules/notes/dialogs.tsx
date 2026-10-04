@@ -5,6 +5,7 @@ import { FormEvent, ReactNode, useState } from "react";
 import { api } from "./api";
 import { flushPageSave } from "./pageSave";
 import { useNotesStore } from "./store";
+import { useMobileDismiss } from "../../shared/useMobileDismiss";
 
 export function Modal({
   title,
@@ -17,13 +18,17 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  useMobileDismiss(onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={onClose}
     >
       <div
-        className={`rounded-lg bg-white p-5 shadow-xl dark:bg-neutral-800 ${wide ? "w-[34rem]" : "w-96"}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`notes-dialog rounded-lg bg-white p-5 shadow-xl dark:bg-neutral-800 ${wide ? "w-[34rem]" : "w-96"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-3 text-lg font-semibold">{title}</h3>

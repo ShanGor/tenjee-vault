@@ -113,7 +113,10 @@ pub fn create(
     title: &str,
 ) -> VaultResult<PageSummary> {
     let domain = target_domain(conn, session, parent)?;
-    let page = hierarchy::create_page(conn, &domain, parent, title)?;
+    let encrypted=section_encrypted(conn, &domain)?;
+    let stored_title=protect_content(session,&domain,encrypted,title)?;
+    let mut page = hierarchy::create_page_prepared(conn, &domain, parent, &stored_title,encrypted)?;
+    page.title=title.into();
     let content = protect_content(session, &domain, section_encrypted(conn, &domain)?, "")?;
     conn.execute("UPDATE pages SET content=?1,sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM pages WHERE parent_page_id IS ?2 AND id!=?3) WHERE id=?3",params![content,parent,page.id])?;
     Ok(page)
@@ -132,10 +135,10 @@ fn transfer(
 ) -> VaultResult<()> {
     let target_encrypted = section_encrypted(conn, target)?;
     for id in ids {
-        let (source, content): (String, String) = conn.query_row(
-            "SELECT section_id,content FROM pages WHERE id=?1",
+        let (source, content, title, title_flag): (String, String, String, bool) = conn.query_row(
+            "SELECT section_id,content,title,title_is_encrypted FROM pages WHERE id=?1",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
         if source == target {
             continue;
@@ -175,8 +178,8 @@ fn transfer(
             old_blobs.push(attachment.hash);
         }
         conn.execute(
-            "UPDATE pages SET section_id=?1,content=?2 WHERE id=?3",
-            params![target, stored, id],
+            "UPDATE pages SET section_id=?1,content=?2,title=?4,title_is_encrypted=?5 WHERE id=?3",
+            params![target, stored, id, protect_content(session,target,target_encrypted,&reveal_content(session,&source,source_encrypted && title_flag,&title)?)?, target_encrypted],
         )?;
     }
     Ok(())
@@ -402,7 +405,7 @@ pub fn protect(
             "Confirm password loss is unrecoverable and enter a password",
         ));
     }
-    let node = metadata(conn, id)?;
+    metadata(conn, id)?;
     let ids = descendants(conn, id)?;
     for page in &ids {
         let domain: String =
@@ -420,7 +423,7 @@ pub fn protect(
     let keys = crate::crypto::keys::unwrap_dsk(&wrapped, password)?;
     session.insert(&domain, keys);
     let result = with_blob_transaction(conn, files, |tx, old_blobs, new_blobs| {
-        tx.execute("INSERT INTO sections(id,notebook_id,name,is_encrypted,kdf_salt,kdf_params,verifier,wrapped_dsk,root_page_id) VALUES (?1,'__page_storage__',?2,1,?3,?4,?5,?6,?7)",params![domain,node.page.title,wrapped.salt,serde_json::json!({"m_cost":wrapped.m_cost,"t_cost":wrapped.t_cost,"p_cost":wrapped.p_cost}).to_string(),wrapped.verifier,wrapped.wrapped_dsk,id])?;
+        tx.execute("INSERT INTO sections(id,notebook_id,name,is_encrypted,kdf_salt,kdf_params,verifier,wrapped_dsk,root_page_id) VALUES (?1,'__page_storage__','Protected page',1,?2,?3,?4,?5,?6)",params![domain,wrapped.salt,serde_json::json!({"m_cost":wrapped.m_cost,"t_cost":wrapped.t_cost,"p_cost":wrapped.p_cost}).to_string(),wrapped.verifier,wrapped.wrapped_dsk,id])?;
         transfer(tx, files, session, &ids, &domain, old_blobs, new_blobs)?;
         Ok(())
     });
@@ -467,7 +470,7 @@ pub fn remove_protection(
     Ok(())
 }
 
-pub fn path(conn: &Connection, id: &str) -> VaultResult<String> {
+pub fn path(conn: &Connection, session: &SessionManager, id: &str) -> VaultResult<String> {
     let mut titles = vec![];
     let mut current = Some(id.to_owned());
     let mut seen = HashSet::new();
@@ -478,14 +481,15 @@ pub fn path(conn: &Connection, id: &str) -> VaultResult<String> {
         let row: Option<(String, Option<String>)> = conn
             .query_row(
                 "SELECT title,parent_page_id FROM pages WHERE id=?1",
-                [id],
+                [&id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
         let Some((title, parent)) = row else {
             break;
         };
-        titles.push(title);
+        let _=title;
+        titles.push(visible_title(conn,session,&id)?);
         current = parent;
     }
     titles.reverse();
@@ -875,4 +879,12 @@ mod tests {
             .iter()
             .any(|entry| entry.file_name().to_string_lossy().contains("Unrelated")));
     }
+}
+
+/// Hydrate navigation titles only for local unlocked views.
+pub fn hydrate(conn:&Connection,session:&SessionManager,nodes:&mut [Node])->VaultResult<()> {
+    for node in nodes {node.page.title=visible_title(conn,session,&node.page.id)?;hydrate(conn,session,&mut node.children)?;} Ok(())
+}
+pub fn hydrate_legacy(conn:&Connection,session:&SessionManager,nodes:&mut [hierarchy::PageNode])->VaultResult<()> {
+    for node in nodes {node.page.title=visible_title(conn,session,&node.page.id)?;hydrate_legacy(conn,session,&mut node.children)?;} Ok(())
 }

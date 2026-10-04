@@ -98,7 +98,8 @@ pub fn export_section(
     if crate::notes::section_encrypted(conn, section_id)? {
         session.with_dsk(section_id, |_| Ok(()))?;
     }
-    let tree = hierarchy::page_tree(conn, section_id)?;
+    let mut tree = hierarchy::page_tree(conn, section_id)?;
+    crate::notes::page_tree::hydrate_legacy(conn,session,&mut tree)?;
     export_tree(
         conn, files_dir, session, &tree, format, directory, name, overwrite,
     )
@@ -134,7 +135,9 @@ pub fn export_subtree(
         }
         None
     }
-    let root = find(crate::notes::page_tree::tree(conn)?, page_id)
+    let mut tree=crate::notes::page_tree::tree(conn)?;
+    crate::notes::page_tree::hydrate(conn,session,&mut tree)?;
+    let root = find(tree, page_id)
         .ok_or_else(|| VaultError::NotFound("Page".into()))?;
     for id in crate::notes::page_tree::descendants(conn, page_id)? {
         let live: bool =

@@ -77,6 +77,27 @@ pub(crate) fn protect_bytes(
     session.with_dsk(section_id, |dsk| cipher::seal(bytes, dsk))
 }
 
+/// Read titles locally; locked protected titles never escape as storage ciphertext.
+pub(crate) fn visible_title(conn: &Connection, session: &SessionManager, id: &str) -> VaultResult<String> {
+    let (domain,title,encrypted,flag):(String,String,bool,bool)=conn.query_row(
+        "SELECT p.section_id,p.title,s.is_encrypted,p.title_is_encrypted FROM pages p JOIN sections s ON s.id=p.section_id WHERE p.id=?1",
+        [id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+    if encrypted && !session.is_unlocked(&domain) { return Ok("Protected page".into()); }
+    reveal_content(session,&domain,encrypted && flag,&title)
+}
+
+/// Legacy protected titles migrate only after a successful local unlock.
+pub(crate) fn migrate_titles(conn: &mut Connection, session: &SessionManager, domain: &str) -> VaultResult<()> {
+    session.with_dsk(domain, |_|Ok(()))?;
+    let tx=conn.transaction()?;
+    let rows={let mut stmt=tx.prepare("SELECT id,title FROM pages WHERE section_id=?1 AND title_is_encrypted=0")?;
+        let rows=stmt.query_map([domain],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;rows};
+    for (id,title) in rows {
+        tx.execute("UPDATE pages SET title=?1,title_is_encrypted=1 WHERE id=?2",params![protect_content(session,domain,true,&title)?,id])?;
+    }
+    tx.commit()?;Ok(())
+}
+
 /// 密文字节 → 明文字节（附件用）。
 pub(crate) fn reveal_bytes(
     session: &SessionManager,

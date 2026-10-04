@@ -42,7 +42,6 @@ struct PageRow {
     id: String,
     section_id: String,
     parent_page_id: Option<String>,
-    title: String,
     content: String,
     created_at: String,
     updated_at: String,
@@ -55,7 +54,7 @@ fn row_page(r: &rusqlite::Row<'_>) -> rusqlite::Result<PageRow> {
         id: r.get(0)?,
         section_id: r.get(1)?,
         parent_page_id: r.get(2)?,
-        title: r.get(3)?,
+
         content: r.get(4)?,
         created_at: r.get(5)?,
         updated_at: r.get(6)?,
@@ -81,17 +80,33 @@ pub fn get_page(conn: &Connection, session: &SessionManager, id: &str) -> VaultR
         return Err(VaultError::NotFound(format!("页面 {id} 已在回收站")));
     }
     let encrypted = section_encrypted(conn, &row.section_id)?;
-    let content = reveal_content(session, &row.section_id, encrypted, &row.content)?;
+    let content = project_checkboxes(conn, &row.id, reveal_content(session, &row.section_id, encrypted, &row.content)?)?;
+    let title=super::visible_title(conn, session, &row.id)?;
     Ok(Page {
         id: row.id,
         section_id: row.section_id,
         parent_page_id: row.parent_page_id,
-        title: row.title,
+        title,
         content,
         created_at: row.created_at,
         updated_at: row.updated_at,
         sort_order: row.sort_order,
     })
+}
+
+fn project_checkboxes(conn:&Connection,id:&str,content:String)->VaultResult<String> {
+    let Ok(mut document)=serde_json::from_str::<serde_json::Value>(&content) else {return Ok(content);};
+    let mut stmt=conn.prepare("SELECT task_id,node_id,checked FROM note_task_projections WHERE page_id=?1 ORDER BY task_id,node_id")?;
+    let rows=stmt.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,bool>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+    fn patch(node:&mut serde_json::Value,task:&str,id:&str,checked:bool)->bool {
+        if node["type"]=="taskItem" && node.pointer("/attrs/nodeId").and_then(|v|v.as_str())==Some(id) && node.pointer("/attrs/taskId").and_then(|v|v.as_str()).is_none_or(|v|v==task) {
+            node["attrs"]["taskId"]=serde_json::json!(task);node["attrs"]["checked"]=serde_json::json!(checked);return true;
+        }
+        let mut changed=false;
+        if let Some(children)=node.get_mut("content").and_then(|v|v.as_array_mut()) {for child in children {changed|=patch(child,task,id,checked);}}changed
+    }
+    let mut changed=false;for (task,node,checked) in rows {changed|=patch(&mut document,&task,&node,checked);}
+    Ok(if changed {document.to_string()} else {content})
 }
 
 /// 距上一快照是否超过节流阈值（或无快照）。
@@ -132,8 +147,8 @@ pub fn save_page(
     }
     let stored = protect_content(session, &row.section_id, encrypted, content)?;
     tx.execute(
-        "UPDATE pages SET title = ?1, content = ?2, updated_at = datetime('now') WHERE id = ?3",
-        params![title, stored, id],
+        "UPDATE pages SET title = ?1, content = ?2, title_is_encrypted = ?4, updated_at = datetime('now') WHERE id = ?3",
+        params![protect_content(session, &row.section_id, encrypted, title)?, stored, id, encrypted],
     )?;
     tx.commit()?;
     Ok(())

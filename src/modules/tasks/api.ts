@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "../../shared/mobileReminders";
 
 export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
 export interface TaskList { id: string; name: string; color: string | null; sort_order: number }

@@ -1,5 +1,7 @@
 # Tasks
 
+Implementation is in progress. See [implementation notes](implementation-notes.md) for delivered code, recorded checks, and remaining protocol/device acceptance. Checkboxes require the full stated behavior and acceptance, including the pending native/device checks.
+
 ## 1. Mobile platform foundation
 
 - [ ] 1.1 Gate desktop plugins, tray/window-close behavior, global shortcuts, and window-state setup in Cargo/lib.rs; verify desktop builds and Android/iOS target compilation on their supported runners.
@@ -50,3 +52,5 @@
 - [ ] 7.1 Run real Android↔laptop and iOS↔laptop exchanges plus laptop↔laptop/three-replica fixtures; record initial sync, offline changes both ways, deletion, conflicts, protected data, interruption, and repeat-sync outcomes.
 - [ ] 7.2 Complete frontend/Rust checks and desktop install/offline/backup regression checks; record mobile build artifacts, platform/OS coverage, and limitations in a validation document.
 - [ ] 7.3 Update release documentation and supported-platform claims only after acceptance; verify the documented pairing flow, compatibility policy, and recovery limitations match shipped behavior.
+
+- [ ] Add explicit protected title ciphertext storage, unlock-time legacy migration, neutral locked labels, and an exchange eligibility guard for unmigrated protected domains.

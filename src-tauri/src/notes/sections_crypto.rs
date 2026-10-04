@@ -180,15 +180,15 @@ fn migrate_pages(
     dsk: &[u8; 32],
     encrypt: bool,
 ) -> VaultResult<()> {
-    let mut stmt = conn.prepare("SELECT id, content FROM pages WHERE section_id = ?1")?;
+    let mut stmt = conn.prepare("SELECT id, content, title, title_is_encrypted FROM pages WHERE section_id = ?1")?;
     let pages = stmt
         .query_map(params![section_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, bool>(3)?))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     drop(stmt);
-    let mut update = conn.prepare("UPDATE pages SET content = ?1 WHERE id = ?2")?;
-    for (page_id, stored) in pages {
+    let mut update = conn.prepare("UPDATE pages SET content = ?1, title=?3, title_is_encrypted=?4 WHERE id = ?2")?;
+    for (page_id, stored,title,flag) in pages {
         let new_stored = if encrypt {
             base64_encode(&cipher::seal(stored.as_bytes(), dsk)?)
         } else {
@@ -196,7 +196,10 @@ fn migrate_pages(
             String::from_utf8(plain)
                 .map_err(|_| VaultError::Crypto("解密结果不是合法 UTF-8 文本".into()))?
         };
-        update.execute(params![new_stored, page_id])?;
+        let title=if encrypt {base64_encode(&cipher::seal(title.as_bytes(),dsk)?)} else if flag {
+            String::from_utf8(cipher::open(&base64_decode(&title)?,dsk)?).map_err(|_|VaultError::Crypto("Invalid title encoding".into()))?
+        } else {title};
+        update.execute(params![new_stored, page_id,title,encrypt])?;
     }
     Ok(())
 }
@@ -209,7 +212,7 @@ pub fn decrypted_pages(
 ) -> VaultResult<Vec<(i64, String, String)>> {
     let dsk = session.dsk_copy(section_id)?;
     let mut stmt = conn.prepare(
-        "SELECT p.rowid, p.title, p.content FROM pages p WHERE p.section_id = ?1 AND p.is_deleted = 0",
+        "SELECT p.rowid, p.title, p.content, p.title_is_encrypted FROM pages p WHERE p.section_id = ?1 AND p.is_deleted = 0",
     )?;
     let rows = stmt
         .query_map(params![section_id], |r| {
@@ -217,11 +220,13 @@ pub fn decrypted_pages(
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, bool>(3)?,
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut out = Vec::with_capacity(rows.len());
-    for (rowid, title, stored) in rows {
+    for (rowid, title, stored, flag) in rows {
+        let title=super::reveal_content(session,section_id,flag,&title)?;
         let plain = if stored.is_empty() { Vec::new() } else { cipher::open(&base64_decode(&stored)?, dsk.as_ref())? };
         let content = String::from_utf8(plain)
             .map_err(|_| VaultError::Crypto("解密结果不是合法 UTF-8 文本".into()))?;

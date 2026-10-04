@@ -111,6 +111,10 @@ These features are planned, not available in v1.0. See [mobile and LAN exchange]
 for the mobile layouts, pairing workflow, scope, conflict rules, and recovery behavior, and the
 [OpenSpec proposal](openspec/changes/mobile-and-lan-sync/proposal.md) for implementation planning.
 
+Android development now has a native project and build commands. See
+[Android development](docs/android-development.md) for APK builds, device installation, and the
+native file sharing, scheduled reminders, development-only LAN pairing, and the deferred phone validation checklist. This development target is not part of the v1.0 support claim.
+
 ## v1.0 changes
 
 - Portable note and calendar import/export, printing, verified `.tvault` backups, atomic restore,
