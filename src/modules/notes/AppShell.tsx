@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../shared/ActionMenu";
 import { useLocation } from "react-router-dom";
 import { NavigationDrawer } from "../../shared/NavigationDrawer";
 import { useCompactLayout } from "../../shared/useCompactLayout";
@@ -137,7 +138,7 @@ export default function AppShell() {
         </select>
         <button className="rounded border px-2 py-1 text-sm" onClick={addSpace}>{ui("＋空间")}</button>
         {spaceId && (
-          <details className="action-menu"><summary aria-label={ui("更多")}>⋯</summary><div className="action-menu-panel">
+          <ActionMenu label={ui("更多")}>
             {compact && <button onClick={addSpace}>{ui("新建空间")}</button>}
             <button
               className="rounded border px-2 py-1 text-sm"
@@ -168,7 +169,7 @@ export default function AppShell() {
                 if (s) setConfirm({ kind: "delete", id: s.id, name: s.name });
               }}
             >{ui("删除")}</button>
-          </div></details>
+          </ActionMenu>
         )}
         <span className="ml-auto flex items-center gap-2 text-sm">
           {settings && (

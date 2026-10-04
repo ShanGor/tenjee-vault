@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../shared/ActionMenu";
 import { ui, uiError } from "../../i18n/ui";
 // 编辑器页面：TipTap 集成、1s 防抖自动保存、格式工具栏、[[ 双链、
 // 图片/附件/绘图块、版本历史面板（tasks 5.1–5.6 / 7.1）。
@@ -458,7 +459,7 @@ export default function EditorPage() {
           {isSaving ? ui("正在保存…") : isEditing ? ui("完成编辑") : ui("编辑")}
         </button>
         {encryptedSection && <span title={ui("受保护页面")}>{sectionLocked ? "🔒" : "🔓"}</span>}
-        <details className="action-menu"><summary>{ui("更多")}</summary><div className="action-menu-panel">
+        <ActionMenu label={ui("更多")} trigger={ui("更多")}>
         <button className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => setShowVersions((v) => !v)}>{ui("历史版本")}</button>
         <button className="shrink-0 rounded border px-2 py-1 text-sm" disabled={!isEditing || isSaving} onClick={importFiles}>{ui("导入")}</button>
         {(["markdown", "html", "pdf"] as NoteExportFormat[]).map((format) => (
@@ -468,7 +469,7 @@ export default function EditorPage() {
         {(["markdown", "html", "pdf"] as NoteExportFormat[]).map((format) => (
           <button key={`section-${format}`} className="shrink-0 rounded border px-2 py-1 text-sm" onClick={() => exportCurrentSubtree(format)}>{ui("导出页面树")}{format === "markdown" ? "MD" : format.toUpperCase()}</button>
         ))}
-        </div></details>
+        </ActionMenu>
       </div>
 
       {editError && <div role="alert" className="border-b px-4 py-2 text-sm text-red-600">{ui("保存失败：{p0}", { p0: editError })}</div>}

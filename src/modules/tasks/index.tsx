@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../shared/ActionMenu";
 import { useMobileDismiss } from "../../shared/useMobileDismiss";
 import { isAndroid, shareAttachment } from "../../shared/nativeFiles";
 import { useCompactLayout } from "../../shared/useCompactLayout";
@@ -96,11 +97,11 @@ export function TasksApp() {
       {compact && <div className="task-mobile-selector"><label><span>{ui("任务列表")}</span><select value={view === "list" ? `list:${store.selectedListId ?? ""}` : view} onChange={(event) => { const value = event.target.value; setSelectionMode(false); useTaskStore.setState({ selected: new Set() }); if (value.startsWith("list:")) { setView("list"); void store.selectList(value.slice(5)); } else setView(value as View); }}>
         {store.lists.map((list) => <option key={list.id} value={`list:${list.id}`}>{list.name}</option>)}
         {(["kanban", "today", "week", "overdue", "archive", "search"] as View[]).map((item) => <option key={item} value={item}>{labels[item]}</option>)}
-      </select></label><button className="task-icon-button" aria-label={ui("新建列表")} onClick={() => setListDialog({})}><Icon name="plus" /></button><details className="action-menu"><summary aria-label={ui("更多")}>⋯</summary><div className="action-menu-panel">
+      </select></label><button className="task-icon-button" aria-label={ui("新建列表")} onClick={() => setListDialog({})}><Icon name="plus" /></button><ActionMenu label={ui("更多")}>
         <button disabled={!store.selectedListId} onClick={() => setListDialog({ value: store.lists.find((list) => list.id===store.selectedListId) })}>{ui("编辑列表")}</button>
         <button disabled={store.lists.findIndex((list) => list.id===store.selectedListId)<=0} onClick={() => void reorderSelectedList(-1)}>{ui("向上移动")}</button>
         <button disabled={!store.selectedListId || store.lists.findIndex((list) => list.id===store.selectedListId)>=store.lists.length-1} onClick={() => void reorderSelectedList(1)}>{ui("向下移动")}</button>
-      </div></details></div>}
+      </ActionMenu></div>}
       <header className="task-page-header flex items-center gap-2 border-b p-3"><div><h2 className="font-semibold">{view === "list" ? store.lists.find((item) => item.id === store.selectedListId)?.name ?? ui("任务") : labels[view]}</h2>{view === "list" && store.lists.find((item) => item.id === store.selectedListId)?.name === "收件箱" && <p className="task-list-hint">{ui("收件箱是默认任务列表，用来暂存尚未分类的任务。")}</p>}</div><div className="ml-auto flex items-center gap-2">{view === "list" && <><button className="rounded border px-3 py-2 text-xs" onClick={() => setListDialog({ value: store.lists.find((item) => item.id === store.selectedListId) })}>{ui("编辑列表")}</button><button className="rounded border px-3 py-2 text-xs" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); useTaskStore.setState({ selected: new Set() }); }}>{ui(selectionMode ? "退出选择" : "批量选择")}</button></>}<button className="rounded border px-3 py-2 text-xs" disabled={!store.selectedListId} onClick={() => setMedicationDialog(true)}>{ui("服药疗程")}</button><button className="primary-button" disabled={!store.selectedListId} onClick={() => setTaskDialog({})}><Icon name="plus" size={16} />{ui("新建任务")}</button></div></header>
       {selectionMode && <div className="task-selection-bar"><span>{ui("已选择 {p0} 项", { p0: store.selected.size })}</span><BatchToolbar refresh={refresh} /></div>}
       {actionError && <p role="alert" className="task-form-error px-6">{actionError}</p>}
@@ -148,11 +149,11 @@ function TaskRow({ node, depth, index, selectionMode, onCreateChild, onRefresh }
   const selected = useTaskStore((state) => state.selected);
   const drag = usePointerDrag<{ id: string; parent: string | null; index: number }>({ onEnd: async ({ data, delta }) => { const shift = Math.round(delta.y / 44); if (shift) { await taskApi.reorder(data.id, data.parent, Math.max(0, data.index + shift)); await onRefresh(); } } });
   return <><div draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-task-id", node.id); e.dataTransfer.setData("application/x-task", JSON.stringify({ id: node.id, title: node.title })); }} className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-neutral-50 dark:hover:bg-neutral-900" style={{ paddingLeft: `${depth * 20 + 8}px` }} onPointerMove={drag.onPointerMove} onPointerUp={drag.onPointerUp} onPointerCancel={drag.onPointerCancel}>
-    <details className="action-menu compact-only"><summary aria-label={ui("移动")}>⋯</summary><div className="action-menu-panel">
+    <ActionMenu label={ui("移动")} className="compact-only">
       <button disabled={index === 0} onClick={async () => { await taskApi.reorder(node.id, node.parent_task_id, index - 1); await onRefresh(); }}>{ui("向上移动")}</button>
       <button onClick={async () => { await taskApi.reorder(node.id, node.parent_task_id, index + 1); await onRefresh(); }}>{ui("向下移动")}</button>
       <button onClick={() => onCreateChild(node)}>{ui("新建子任务")}</button>
-    </div></details>
+    </ActionMenu>
     <span className="task-drag-handle cursor-grab select-none" onPointerDown={drag.onPointerDown({ id: node.id, parent: node.parent_task_id, index })}>⠿</span>{selectionMode ? <input type="checkbox" aria-label={ui("选择任务：{p0}", {p0: node.title})} checked={selected.has(node.id)} onChange={() => useTaskStore.getState().toggleSelected(node.id)} /> : <input type="checkbox" aria-label={ui("完成任务：{p0}", {p0: node.title})} checked={node.status === "done"} onChange={async () => { await taskApi.setStatus(node.id, node.status === "done" ? "todo" : "done"); await onRefresh(); }} />}<button className={`min-w-0 flex-1 truncate text-left ${node.status === "done" ? "line-through text-neutral-400" : ""}`} onClick={() => useTaskStore.setState({ selectedTaskId: node.id })}>{node.title}</button>{node.due_date && <time className={`text-xs ${dueDateClass(node.due_date)}`}>{node.due_date}</time>}<button className="task-icon-button invisible group-hover:visible" title={ui("新建子任务")} aria-label={ui("新建子任务")} onClick={() => onCreateChild(node)}><Icon name="plus" size={16} /></button>
   </div>{node.children.map((child, childIndex) => <TaskRow key={child.id} node={child} depth={depth + 1} index={childIndex} selectionMode={selectionMode} onCreateChild={onCreateChild} onRefresh={onRefresh} />)}</>;
 }

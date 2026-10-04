@@ -359,11 +359,11 @@ select { max-width: 100%; }
   .editor-heading { padding: 0; background: white; }
 }
 .action-menu { position: relative; flex-shrink: 0; }
-.action-menu > summary { list-style: none; cursor: pointer; border: 1px solid var(--color-border); border-radius: 7px; padding: 5px 10px; font-size: 13px; color: var(--color-muted); }
-.action-menu > summary::-webkit-details-marker { display: none; }
-.action-menu > summary:hover { background: var(--color-canvas); }
+.action-menu-trigger { list-style: none; cursor: pointer; border: 1px solid var(--color-border); border-radius: 7px; padding: 5px 10px; font-size: 13px; color: var(--color-muted); }
+
+.action-menu-trigger:hover { background: var(--color-canvas); }
 .action-menu-panel { position: absolute; top: calc(100% + 7px); right: 0; z-index: 40; display: grid; min-width: 180px; padding: 6px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); box-shadow: 0 10px 30px #102e2520; }
-.workspace-toolbar .action-menu-panel { right: auto; left: 0; }
+
 .action-menu-panel button { width: 100%; border: 0; padding: 9px 12px; text-align: left; font-size: 12px; }
 .action-menu-panel button:hover { background: var(--color-canvas); }
 .document-metadata { background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
@@ -461,9 +461,9 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
 .drawer-heading h2 { flex: 1; font-weight: 600; }
 .drawer-heading button { font-size: 26px; }
 .navigation-drawer .page-sidebar { overflow: auto; }
-.navigation-drawer .action-menu-panel { position: fixed; right: 12px; left: 12px; top: auto; max-height: 65dvh; overflow-y: auto; z-index: 70; }
+
 .calendar-more .action-menu-panel { width: min(300px, calc(100vw - 24px)); }
-.calendar-more .action-menu-panel > div { display: grid; margin-left: 0; }
+.calendar-menu-panel > div { display: grid; margin-left: 0; }
 .calendar-dialog { width: min(34rem, calc(100vw - 24px)); }
 .task-mobile-selector { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
 .task-mobile-selector label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
@@ -511,7 +511,7 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
   .module-notes > div > div, .module-tasks > div { overflow-x: hidden; }
   .module-notes main { min-width: 0; }
   .module-tasks main { width: 100%; min-width: 0; }
-  button, summary, .action-menu > summary { min-height: 44px; min-width: 44px; }
+  button, summary, .action-menu-trigger { min-height: 44px; min-width: 44px; }
   input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea { font-size: 16px !important; min-height: 44px; max-width: 100%; }
   input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
   input:not([type="checkbox"]):not([type="radio"]) { min-width: 0; }
@@ -578,4 +578,39 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
   .settings-page .grid { grid-template-columns: minmax(0, 1fr); }
   .settings-page label.flex { flex-wrap: wrap; }
   .settings-page input[readonly] { width: 0; }
+}
+
+/* Popups escape scrolling module containers and stay inside the visual viewport. */
+.floating-action-menu { position: fixed; right: auto; min-width: 0; z-index: 90; overflow-y: auto; overscroll-behavior: contain; }
+.action-menu-trigger { display: inline-flex; align-items: center; justify-content: center; }
+.calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px; flex-shrink: 0; }
+.calendar-date-navigation, .calendar-view-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.calendar-view-actions { flex-wrap: wrap; }
+.calendar-date-context, .agenda-lunar, .compact-day-heading p { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--color-muted); font-size: 12px; }
+.calendar-date-context { padding: 8px 12px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+.agenda-lunar { margin-top: 4px; }
+.calendar-festival { color: #b91c1c; }
+.calendar-solar-term { color: #047857; }
+.dark .calendar-festival { color: #fca5a5; }
+.dark .calendar-solar-term { color: #6ee7b7; }
+.compact-month-grid button { min-height: 68px; }
+.compact-lunar-label { display: block; max-width: 100%; font-size: 10px; line-height: 16px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compact-lunar-label.calendar-festival { color: #b91c1c; }
+.compact-lunar-label.calendar-solar-term { color: #047857; }
+.compact-month-grid button[aria-pressed="true"] .compact-lunar-label { color: inherit; }
+@media (max-width: 600px) {
+  .app-navigation .capture-trigger, .app-navigation .command-trigger { display: inline-flex; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); color: var(--color-muted); }
+  .app-navigation .command-trigger span { display: none; }
+  .app-navigation .capture-trigger svg, .app-navigation .command-trigger svg { width: 20px; height: 20px; }
+  .app-brand > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .action-menu-trigger { min-height: 44px; min-width: 44px; padding: 0 8px; }
+  .floating-action-menu button, .calendar-menu-panel label { min-height: 44px; font-size: 14px; }
+  .calendar-menu-panel label { padding: 8px 12px; gap: 10px; }
+  .calendar-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px 12px; }
+  .calendar-date-navigation { gap: 4px; }
+  .calendar-date-navigation > button { flex: 0 0 44px; }
+  .calendar-date-navigation > b { flex: 1; min-width: 0; margin: 0; font-size: 12px; text-align: center; white-space: nowrap; }
+  .calendar-view-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .calendar-view-actions select { width: 100%; min-width: 0; }
+  .calendar-create { min-height: 44px; white-space: nowrap; }
 }

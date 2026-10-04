@@ -1,3 +1,4 @@
+import { ActionMenu } from "../../shared/ActionMenu";
 import { usePrompt } from "./usePrompt";
 import { DragEvent, KeyboardEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -102,7 +103,7 @@ export default function PageSidebar() {
         <button className="page-tree-link" data-page-id={node.id} title={title} onClick={() => void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.id)}`))}>
           <Icon name={isLocked ? "lock" : "notes"} size={15} /><span>{title}</span>
         </button>
-        <details className="action-menu page-tree-menu"><summary aria-label={ui("页面操作")}>⋯</summary><div className="action-menu-panel" onClick={(event) => { const details = event.currentTarget.parentElement as HTMLDetailsElement; details.open = false; }}>
+        <ActionMenu label={ui("页面操作")} className="page-tree-menu">
           <button disabled={isLocked} onClick={() => add(node)}>{ui("新建子页面")}</button>
           <button disabled={isLocked} onClick={() => void act(async () => { const name = await prompt(ui("重命名页面"), ui("标题"), node.title); if (name?.trim()) { await api.renamePage(spaceId, node.id, name.trim()); await refreshTree(); } })}>{ui("重命名")}</button>
           <button disabled={isLocked} onClick={() => { setMoving(node); setParentId(node.parent_page_id ?? ""); }}>{ui("移动页面")}</button>
@@ -117,7 +118,7 @@ export default function PageSidebar() {
             </>}
           </> : <button onClick={() => setDialog({ kind: "protect", node })}>{ui("保护页面及子页面")}</button>}
           <button disabled={isLocked} onClick={() => setDeleting(node)}>{ui("删除（进回收站）")}</button>
-        </div></details>
+        </ActionMenu>
       </div>
       {open && !(isLocked && settings?.encrypted_section_show_titles === false) && node.children.map((child, index) => render(child, depth + 1, index))}
     </div>;
