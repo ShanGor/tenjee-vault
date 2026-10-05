@@ -5,4 +5,5 @@ pub mod groups;
 pub mod network;
 pub mod session;
 pub mod engine;
+mod files;
 pub mod conflicts;

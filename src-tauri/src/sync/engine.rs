@@ -1,4 +1,4 @@
-use super::{auth, groups::{self,Domain}, storage::{self,Context,Record}, session::Session};
+use super::{auth, files, groups::{self,Domain}, storage::{self,Context,Record}, session::Session};
 use crate::commands::AppStateInner;
 use crate::error::{VaultError,VaultResult};
 use serde::{Deserialize,Serialize};
@@ -437,7 +437,7 @@ fn receive_bodies(inner:&AppStateInner,stream:&mut (impl Read+Write),inventory:&
                 std::fs::rename(temporary,&cached)?;
             }
             let target=stage.path().join("blobs").join(&blob.hash);
-            if !target.exists(){std::fs::copy(&cached,&target)?;std::fs::File::open(&target)?.sync_all()?;}
+            if !target.exists(){std::fs::copy(&cached,&target)?;files::sync_file(&target)?;}
             if hash_file(&target)?!=blob.hash{return Err(invalid("Staged attachment integrity check failed"));}
         }
         if let Some(group)=&body.meta.group {
@@ -603,7 +603,7 @@ fn apply_manifest(inner:&AppStateInner,directory:&std::path::Path,session:Option
                     if !target.exists(){
                         let parent=target.parent().ok_or_else(||invalid("Missing attachment directory"))?;std::fs::create_dir_all(parent)?;
                         let temporary=parent.join(format!("{}.exchange-{}",hash,uuid::Uuid::new_v4()));
-                        std::fs::copy(&source,&temporary)?;std::fs::File::open(&temporary)?.sync_all()?;
+                        std::fs::copy(&source,&temporary)?;files::sync_file(&temporary)?;
                         std::fs::rename(temporary,&target)?;
                     } else if hash_file(&target)?!=hash {return Err(invalid("Existing attachment integrity check failed"));}
                 }
@@ -685,8 +685,7 @@ pub fn exchange(inner:&AppStateInner,stream:&mut(impl Read+Write),snapshot:&Snap
     session.check()?;
     let pending_local_changes=snapshot_without_blobs(inner)?.fingerprint!=snapshot.fingerprint;
     let directory=staged.keep();
-    std::fs::rename(directory.join("manifest.json"),directory.join("ready.json"))?;
-    std::fs::File::open(&directory)?.sync_all()?;
+    files::publish_ready(&directory)?;
     if manifest_has_protection(&directory)? {let cache=blob_cache(inner)?;std::fs::remove_dir_all(cache)?;}
     let mut result=apply_manifest(inner,&directory,Some(session))?;
     if result.pending_groups==0 {std::fs::remove_dir_all(&directory)?;}
@@ -835,7 +834,7 @@ fn convert_plaintext_conflicts(inner:&AppStateInner,store:&str,records:Vec<Recor
             validate_domain(&candidate)?;
             for hash in blob_refs(&original.records)? {
                 let target=stage.join("blobs").join(&hash);
-                if !target.exists(){let source=crate::blob_store::blob_path(&inner.files_dir(id),&hash);if hash_file(&source)?!=hash{return Err(invalid("Current protected attachment integrity check failed"));}std::fs::copy(source,&target)?;std::fs::File::open(target)?.sync_all()?;}
+                if !target.exists(){let source=crate::blob_store::blob_path(&inner.files_dir(id),&hash);if hash_file(&source)?!=hash{return Err(invalid("Current protected attachment integrity check failed"));}std::fs::copy(source,&target)?;files::sync_file(&target)?;}
             }
             result.push(domain_packet(store,original)?);result.push(domain_packet(store,candidate)?);
         }

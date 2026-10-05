@@ -5,6 +5,7 @@ import { ui } from "../i18n/ui";
 import { useMobileDismiss } from "./useMobileDismiss";
 import { flushPageSave } from "../modules/notes/pageSave";
 import { reconcileReminders } from "./mobileReminders";
+import { formatExchangeError } from "./exchangeError";
 
 type Summary = { records:number; deletions:number; conflicts:number; blobs:number };
 type Peer = { session:string; label:string; platform:string; addresses:string[] };
@@ -30,10 +31,7 @@ export function ExchangePage() {
   const active=["discovering","pairing","negotiating","approval","exchanging"].includes(status.phase);
   const validPort=port==="" || (/^\d+$/.test(port) && Number(port)>=1 && Number(port)<=65535);
   const phaseLabels:Record<string,string>={idle:ui("交换未开启"),discovering:ui("正在寻找局域网设备"),pairing:ui("正在验证配对码"),negotiating:ui("正在准备交换范围"),approval:ui("等待双方确认"),exchanging:ui("正在交换数据"),finished:ui("交换已完成"),failed:ui("交换未完成"),stopped:ui("交换已停止")};
-  const exchangeError=(error:unknown)=>{
-    try{const payload=JSON.parse(String(error));const detail=Object.fromEntries(payload.params ?? []).detail;if(payload.code==="validation" && detail)return String(detail);}catch{/* lifecycle message */}
-    return formatError(error);
-  };
+  const exchangeError=(error:unknown)=>formatExchangeError(error,formatError);
   const refreshConflicts=()=>invoke<Conflict[]>("exchange_conflicts_cmd").then(setConflicts);
   const refreshNetworks=()=>invoke<NetworkOption[]>("exchange_networks_cmd").then(setNetworks);
   useEffect(()=>{

@@ -88,6 +88,11 @@ pub struct Network {
 }
 
 impl Network {
+    #[cfg(test)]
+    pub(super) fn unbound() -> Self {
+        Self { interfaces: Vec::new(), routed: false }
+    }
+
     pub fn select(name: Option<&str>) -> VaultResult<Self> {
         Self::from_interfaces(if_addrs::get_if_addrs()?, name)
     }

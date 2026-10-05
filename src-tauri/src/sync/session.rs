@@ -35,9 +35,9 @@ struct Mutable {
 pub struct Session {
     pub id: String,
     network: network::Network,
-    #[allow(dead_code)]
+    #[cfg(target_os="android")]
     app: tauri::AppHandle,
-    #[allow(dead_code)]
+    #[cfg(target_os="android")]
     native_token: String,
     inner: Mutex<Mutable>,
     cancelled: AtomicBool,
@@ -105,9 +105,12 @@ impl Session {
     }
     fn exchange(&self, app: &tauri::AppHandle, stream: &mut (impl std::io::Read + std::io::Write), receiver: bool) -> VaultResult<()> {
         let state=app.state::<AppState>();
-        engine::recover(&state.inner)?;
-        let snapshot=engine::snapshot(&state.inner)?;
-        let local=engine::hello(&state.inner, &self.state().status.label, &snapshot)?;
+        self.exchange_workspace(&state.inner,stream,receiver)
+    }
+    fn exchange_workspace(&self, inner: &crate::commands::AppStateInner, stream: &mut (impl std::io::Read + std::io::Write), receiver: bool) -> VaultResult<()> {
+        engine::recover(inner)?;
+        let snapshot=engine::snapshot(inner)?;
+        let local=engine::hello(inner, &self.state().status.label, &snapshot)?;
         auth::send(stream,&local)?;
         let remote: engine::Hello=auth::receive(stream,32768)?;
         engine::validate_hello(&local,&remote)?;
@@ -123,7 +126,7 @@ impl Session {
         let approval: serde_json::Value=auth::receive(stream,4096)?;
         if approval["approved"]!=true || approval["scope"]!=binding { return Err(VaultError::Validation("Peer did not approve the same full-workspace scope".into())); }
         self.phase("exchanging","");
-        let result=engine::exchange(&state.inner,stream,&snapshot,&remote.replica,receiver,self)?;
+        let result=engine::exchange(inner,stream,&snapshot,&remote.replica,receiver,self)?;
         self.result(result);
         self.phase("finished","");
         Ok(())
@@ -139,6 +142,8 @@ impl ExchangeManager {
 }
 
 fn start(app: tauri::AppHandle, label: String, native_token: String, interface: Option<String>, port: u16) -> VaultResult<Status> {
+    #[cfg(not(target_os="android"))]
+    let _=native_token;
     if !app.state::<ExchangeManager>().1.load(Ordering::SeqCst) { return Err(VaultError::Validation("Exchange start was interrupted".into())); }
     if label.trim().is_empty() || label.len()>128 || label.chars().any(char::is_control) { return Err(VaultError::Validation("Enter a device label of at most 128 bytes".into())); }
     let mut network=network::Network::select(interface.as_deref())?;
@@ -147,7 +152,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
     let id=uuid::Uuid::new_v4().to_string();
     let code=Zeroizing::new(format!("{:08}",rand::rngs::OsRng.gen_range(0..100_000_000u32)));
     let identity=auth::ServerIdentity::new()?;
-    let session=Arc::new(Session{id:id.clone(),network,app:app.clone(),native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
+    let session=Arc::new(Session{id:id.clone(),network,#[cfg(target_os="android")] app:app.clone(),#[cfg(target_os="android")] native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
     *session.listeners.lock().unwrap()=listeners;
     {
         let manager=app.state::<ExchangeManager>(); let mut current=manager.0.lock().unwrap();
@@ -329,4 +334,163 @@ pub async fn exchange_discard_pending_cmd(app:tauri::AppHandle)->VaultResult<()>
     tauri::async_runtime::spawn_blocking(move ||{owner.state::<ExchangeManager>().stop();engine::discard_pending(&owner.state::<AppState>().inner)?;
         if let Ok(session)=owner.state::<ExchangeManager>().current(){let mut state=session.state();state.status.phase="stopped".into();state.status.result=None;state.status.message="Pending exchange files cleared; committed data is kept".into();}
         Ok(())}).await.map_err(|_|VaultError::Validation("Exchange cleanup interrupted".into()))?
+}
+
+#[cfg(all(test, not(target_os = "android")))]
+mod tests {
+    use super::*;
+    use crate::db::{layout, startup};
+
+    fn session() -> Arc<Session> {
+        Arc::new(Session {
+            id: uuid::Uuid::new_v4().to_string(),
+            network: network::Network::unbound(),
+            inner: Mutex::new(Mutable {
+                status: Status {
+                    label: "Test device".into(),
+                    ..Status::default()
+                },
+                code: Zeroizing::new(String::new()),
+                expires: Instant::now() + Duration::from_secs(300),
+                busy: false,
+                approved: false,
+                touched: Instant::now(),
+                peers: BTreeMap::new(),
+            }),
+            cancelled: AtomicBool::new(false),
+            accepting: AtomicBool::new(true),
+            sockets: Mutex::new(Vec::new()),
+            listeners: Mutex::new(Vec::new()),
+            discovery: Mutex::new(None),
+            identity: Mutex::new(None),
+            workers: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn workspace() -> (tempfile::TempDir, AppState) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = layout::data_root(directory.path());
+        let report = startup::startup(&root).unwrap();
+        let state = AppState::init(root, report).unwrap();
+        (directory, state)
+    }
+
+    fn exchange_round(left: &AppState, right: &AppState) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = session();
+        let connector = session();
+        let receiving = receiver.clone();
+        let connecting = connector.clone();
+        let left_inner = left.inner.clone();
+        let right_inner = right.inner.clone();
+        let server = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut stream = auth::server(
+                socket,
+                &auth::ServerIdentity::new().unwrap(),
+                &receiving.id,
+                "01234567",
+            )
+            .unwrap();
+            stream
+                .sock
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            receiving.exchange_workspace(&right_inner, &mut stream, true)
+        });
+        let client = std::thread::spawn(move || {
+            let mut stream =
+                auth::client(TcpStream::connect(address).unwrap(), "01234567").unwrap();
+            stream
+                .sock
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            connecting.exchange_workspace(&left_inner, &mut stream, false)
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while receiver.status().phase != "approval" || connector.status().phase != "approval" {
+            assert!(Instant::now() < deadline, "Peers did not reach approval");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        receiver.state().approved = true;
+        connector.state().approved = true;
+        let left_result = client.join().unwrap();
+        let right_result = server.join().unwrap();
+        assert!(left_result.is_ok(), "Connector failed: {left_result:?}");
+        assert!(right_result.is_ok(), "Receiver failed: {right_result:?}");
+        assert_eq!(receiver.status().phase, "finished");
+        assert_eq!(connector.status().phase, "finished");
+        assert_eq!(receiver.status().result.unwrap().pending_groups, 0);
+        assert_eq!(connector.status().result.unwrap().pending_groups, 0);
+    }
+
+    #[test]
+    fn confirmed_exchange_transfers_attachments_and_repeats_without_duplicates() {
+        let (_left_dir, left) = workspace();
+        let (_right_dir, right) = workspace();
+        // Larger than two transfer chunks, with distinct content in each direction.
+        let left_bytes: Vec<u8> = (0..600_000).map(|n| (n % 251) as u8).collect();
+        let right_bytes: Vec<u8> = (0..550_000).map(|n| (n % 239) as u8).collect();
+        let left_attachment = left
+            .inner
+            .with_tasks(|conn| {
+                let list = crate::tasks::lists::create_list(conn, "From left", None)?;
+                let task =
+                    crate::tasks::tasks::create_task(conn, &list.id, None, "Task from left")?;
+                crate::tasks::attachments::save_attachment(
+                    &left.inner.tasks_files_dir(),
+                    conn,
+                    &task.id,
+                    "左附件.bin",
+                    None,
+                    &left_bytes,
+                )
+            })
+            .unwrap();
+        let right_attachment = right
+            .inner
+            .with_tasks(|conn| {
+                let list = crate::tasks::lists::create_list(conn, "From right", None)?;
+                let task =
+                    crate::tasks::tasks::create_task(conn, &list.id, None, "Task from right")?;
+                crate::tasks::attachments::save_attachment(
+                    &right.inner.tasks_files_dir(),
+                    conn,
+                    &task.id,
+                    "right.bin",
+                    None,
+                    &right_bytes,
+                )
+            })
+            .unwrap();
+        for _ in 0..2 {
+            exchange_round(&left, &right);
+            for state in [&left, &right] {
+                assert_eq!(
+                    crate::blob_store::read(&state.inner.tasks_files_dir(), &left_attachment.hash)
+                        .unwrap(),
+                    left_bytes
+                );
+                assert_eq!(
+                    crate::blob_store::read(&state.inner.tasks_files_dir(), &right_attachment.hash)
+                        .unwrap(),
+                    right_bytes
+                );
+                state.inner.with_tasks(|conn| {
+                    let count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM tasks WHERE title IN ('Task from left','Task from right')",
+                        [], |row| row.get(0),
+                    )?;
+                    assert_eq!(count, 2);
+                    let count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM attachments WHERE id IN (?1,?2)",
+                        [&left_attachment.id, &right_attachment.id], |row| row.get(0),
+                    )?;
+                    assert_eq!(count, 2);
+                    Ok(())
+                }).unwrap();
+            }
+        }
+    }
 }
