@@ -1,6 +1,6 @@
 //! Native desktop entry points share the same `app-action` protocol as the React command panel.
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod single_instance;
 
 use std::collections::BTreeMap;

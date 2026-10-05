@@ -33,7 +33,7 @@ use tauri_plugin_notification::NotificationExt;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let context = tauri::generate_context!();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     desktop::single_instance::report_existing_instance(&context.config().identifier);
 
     let builder = tauri::Builder::default()

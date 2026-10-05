@@ -26,13 +26,17 @@ npm run tauri build
 
 To run the desktop development app, use `npm run tauri -- dev`. To build a standalone
 Debug executable, use `npm run tauri -- build --debug --no-bundle`; on Linux the executable
-is `src-tauri/target/debug/tenjee-vault`. Debug builds enable the development-only
+is `src-tauri/target/debug/tenjee-vault`, and on Windows it is
+`src-tauri/target/debug/tenjee-vault.exe`. Debug builds enable the development-only
 **Device exchange** page in the top navigation.
 
 Before launching a different build, fully **Quit** any running Tenjee Vault instance,
 including one hidden in the system tray. Desktop builds share a single-instance identity:
 launching a second executable focuses the existing process and exits, even if the new
 executable was just rebuilt. Rebuilding does not update an already-running app.
+On Linux and Windows, a launch from a terminal reports the existing process ID when this
+happens. On Windows, check running builds in PowerShell with
+`Get-Process tenjee-vault -ErrorAction SilentlyContinue | Select-Object Id, StartTime, Path`.
 
 Each platform builds only its own target, declared in the per-OS configs:
 [src-tauri/tauri.windows.conf.json](src-tauri/tauri.windows.conf.json) (bundling disabled; the
