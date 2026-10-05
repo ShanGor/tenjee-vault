@@ -1,5 +1,9 @@
 # Implementation status — 2026-10-03
 
+Update — 2026-10-05: The user reported successful Device Exchange testing and requested release-build availability. The Debug-only availability and start guards have been removed, so current Debug and release builds both support exchange. The development-only UI notice and release documentation were updated. Earlier release-gate statements below describe historical builds; the broader mobile/protocol acceptance tasks remain open.
+
+Promotion checks: `npm run build` passed; all 13 frontend tests and 2 script tests passed; `cargo test --locked --release --lib sync::` passed all 22 exchange tests, including release-profile availability, authenticated transfer of multi-chunk attachments in both directions, and duplicate-free repeat exchange. `npm run tauri -- build --no-bundle` produced the Linux release executable at `src-tauri/target/release/tenjee-vault`. `git diff --check` passed.
+
 Android development implementation is available. This is not a mobile release: physical phone validation is deferred at the user's request, iOS is not implemented, and protocol acceptance is outstanding. The OpenSpec tasks bundle implementation with acceptance, so all 31 checkboxes remain open.
 
 ## Delivered code

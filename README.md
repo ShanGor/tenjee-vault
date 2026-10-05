@@ -27,8 +27,8 @@ npm run tauri build
 To run the desktop development app, use `npm run tauri -- dev`. To build a standalone
 Debug executable, use `npm run tauri -- build --debug --no-bundle`; on Linux the executable
 is `src-tauri/target/debug/tenjee-vault`, and on Windows it is
-`src-tauri/target/debug/tenjee-vault.exe`. Debug builds enable the development-only
-**Device exchange** page in the top navigation.
+`src-tauri/target/debug/tenjee-vault.exe`. **Device exchange** is available in both
+Debug and release builds through the top navigation.
 
 Before launching a different build, fully **Quit** any running Tenjee Vault instance,
 including one hidden in the system tray. Desktop builds share a single-instance identity:
@@ -112,23 +112,24 @@ package signing/notarization, OneNote `.one` import, audio recording, or a freef
 import accepts only a safe supported subset, and lunar recurring events must be exported over a
 finite date range as Gregorian instances.
 
-## Planned mobile and local network exchange
+## Device exchange and mobile development
 
-The next planned capability adds Android/iOS layouts and an explicit **Find other devices and
-exchange** mode for a phone and laptop on a reachable LAN or private VPN, including Tailscale. Manual
+Current source builds include an explicit **Find other devices and
+exchange** mode in both Debug and release builds for devices on a reachable LAN or private VPN, including Tailscale. Manual
 hostname/IP and port entry, network selection, and an optional fixed listening port support VPN use. Devices pair with a
 random, temporary authentication code, approve on both screens, and synchronize notes, tasks,
 calendar, tags, and attachments in both directions over an authenticated encrypted connection.
 Offline edits and conflicts are preserved; protected page trees remain encrypted and still require
 their own passwords. No account or hosted sync service is required.
 
-These features are planned, not available in v1.0. See [mobile and LAN exchange](docs/mobile-and-lan-sync.md)
+Device Exchange was enabled for release builds after the user reported successful testing on 2026-10-05.
+See [mobile and LAN exchange](docs/mobile-and-lan-sync.md)
 for the mobile layouts, pairing workflow, scope, conflict rules, and recovery behavior, and the
 [OpenSpec proposal](openspec/changes/mobile-and-lan-sync/proposal.md) for implementation planning.
 
 Android development now has a native project and build commands. See
 [Android development](docs/android-development.md) for APK builds, device installation, and the
-native file sharing, scheduled reminders, development-only LAN pairing, and the deferred phone validation checklist. This development target is not part of the v1.0 support claim.
+native file sharing, scheduled reminders, LAN pairing, and the deferred phone validation checklist. This development target is not part of the v1.0 support claim; iOS implementation remains pending.
 
 ## v1.0 changes
 

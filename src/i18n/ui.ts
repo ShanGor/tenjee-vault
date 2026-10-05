@@ -12,7 +12,6 @@ export const uiEnglish = {
   "设备交换": "Device exchange",
   "寻找其他设备并交换": "Find other devices and exchange",
   "将两台设备连接到可互通的局域网或 VPN（如 Tailscale），分别开启交换模式。仅在此页面保持前台时交换，离开或锁屏后需要重新配对。": "Connect both devices to a reachable LAN or VPN (such as Tailscale) and enter exchange mode on each. Keep this page in the foreground; leaving or locking the screen requires fresh pairing.",
-  "设备交换正在开发验证，仅开发构建可用。": "Device exchange is undergoing development validation and is available in development builds.",
   "交换网络": "Exchange network",
   "自动选择局域网": "Automatic LAN selection",
   "使用 VPN 时，请在两台设备上选择对应网络。VPN 必须允许设备之间连接；附近设备发现仅用于局域网。": "For VPN exchange, select the corresponding network on both devices. The VPN must allow device-to-device connections; nearby discovery is for LANs.",

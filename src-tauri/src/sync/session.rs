@@ -248,7 +248,6 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
 pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String, interface: Option<String>, port: Option<u16>) -> VaultResult<Status> {
     static ENTER:std::sync::OnceLock<tauri::async_runtime::Mutex<()>>=std::sync::OnceLock::new();
     let _enter=ENTER.get_or_init(||tauri::async_runtime::Mutex::new(())).lock().await;
-    if !cfg!(debug_assertions) {return Err(VaultError::Validation("Device exchange awaits protocol and physical-device validation before release".into()));}
     let owner=app.clone();
     tauri::async_runtime::spawn_blocking(move ||owner.state::<ExchangeManager>().stop()).await.map_err(|_|VaultError::Validation("Exchange cleanup interrupted".into()))?;
     let token=uuid::Uuid::new_v4().to_string();
@@ -317,7 +316,7 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
 }
 
 #[tauri::command]
-pub fn exchange_available_cmd()->bool {cfg!(debug_assertions)}
+pub fn exchange_available_cmd()->bool {true}
 
 #[tauri::command]
 pub async fn exchange_networks_cmd()->VaultResult<Vec<network::NetworkOption>> {
@@ -340,6 +339,11 @@ pub async fn exchange_discard_pending_cmd(app:tauri::AppHandle)->VaultResult<()>
 mod tests {
     use super::*;
     use crate::db::{layout, startup};
+
+    #[test]
+    fn device_exchange_is_available_in_all_build_profiles() {
+        assert!(exchange_available_cmd());
+    }
 
     fn session() -> Arc<Session> {
         Arc::new(Session {

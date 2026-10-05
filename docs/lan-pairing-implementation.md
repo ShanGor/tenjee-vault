@@ -1,6 +1,6 @@
 # LAN exchange implementation
 
-Status: development implementation, 2026-10-03. Commands, discovery, foreground lifecycle, authentication, mutual approval, replication, and conflict handling are connected. Starting exchange is disabled in release builds pending protocol acceptance. Compilation is not evidence of authentication correctness.
+Status: enabled in Debug and release builds, 2026-10-05, following user-reported successful Device Exchange testing and the request to promote it to release builds. Commands, discovery, foreground lifecycle, authentication, mutual approval, replication, and conflict handling are connected. Broader protocol and native-platform acceptance remains tracked separately.
 
 ## Selected libraries
 
@@ -29,7 +29,7 @@ OPAQUE state/setup use the library's zeroization behavior; session/export keys a
 - A hostile authenticated peer can still send malicious records; schema/size/path/hash/domain checks and transaction recovery belong to the replication boundary.
 - Online guessing remains possible; the implementation enforces a five-failure global limit and five-minute expiry. Parallel-attempt and boundary behavior remain unverified.
 
-Published OPAQUE vectors, current-library mutual authentication/wrong-code checks, substituted-channel/replay/downgrade checks, parallel attempt limits, expiry, stop/suspension cleanup, and mutual approval rejection remain pending. Earlier SPAKE2 test results do not satisfy OPAQUE acceptance. The release gate remains in place until the required protocol review and checks are complete. Development builds are for evaluation with disposable data.
+Published OPAQUE vectors, current-library mutual authentication/wrong-code checks, substituted-channel/replay/downgrade checks, parallel attempt limits, expiry, stop/suspension cleanup, and mutual approval rejection remain pending. Earlier SPAKE2 test results do not satisfy OPAQUE acceptance. The build-profile gate was removed on 2026-10-05 at the user's request after successful Device Exchange testing; this does not mark the broader acceptance checklist complete.
 
 
 ## Session and replication boundary
@@ -43,7 +43,7 @@ Published OPAQUE vectors, current-library mutual authentication/wrong-code check
 - Attachment transfer uses 256 KiB chunks, SHA-256 verification, free-space checks, 512 MiB per-blob and 1 GiB staging/cache limits. Fresh pairing and approval are required to resume verified cached bytes. Entity data is capped at 64 MiB, inventory metadata at 64 MiB, and recovery metadata at 128 MiB to bound memory; larger workspaces are rejected explicitly.
 - Ready manifests and per-store transaction receipts recover interrupted multi-database application. Copied blobs are flushed through writable handles. Publishing the ready coordinator uses rename plus directory fsync on Unix and a Unicode, extended-path `MoveFileExW(MOVEFILE_WRITE_THROUGH)` rename on Windows. Only durably committed changes are acknowledged. Users can clear uncommitted pending transfer files while retaining committed data and original source edits.
 
-See [phone validation](android-validation.md) for the deferred device scenarios. Current-library OPAQUE vectors, authentication/replay/channel-binding checks, malformed-peer checks, fault injection, and three-replica convergence are still required before production use.
+See [phone validation](android-validation.md) for the remaining device scenarios. Current-library OPAQUE vectors, authentication/replay/channel-binding checks, malformed-peer checks, fault injection, and three-replica convergence remain on the broader acceptance checklist.
 
 ## Windows post-confirmation failure — 2026-10-05
 

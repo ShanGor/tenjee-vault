@@ -56,7 +56,6 @@ export function ExchangePage() {
   return <main className="h-full overflow-y-auto p-4 sm:p-6"><div className="mx-auto max-w-3xl space-y-5">
     <h1 className="text-xl font-semibold">{ui("寻找其他设备并交换")}</h1>
     <p className="text-sm text-neutral-600">{ui("将两台设备连接到可互通的局域网或 VPN（如 Tailscale），分别开启交换模式。仅在此页面保持前台时交换，离开或锁屏后需要重新配对。")}</p>
-    {available===false && <p role="status">{ui("设备交换正在开发验证，仅开发构建可用。")}</p>}
     {error && <p role="alert" className="rounded border border-red-300 p-3">{error}</p>}
     <section className="space-y-3 rounded-lg border p-4">
       <label className="block">{ui("本机名称")}<input className="mt-1 block w-full rounded border p-2" maxLength={64} value={label} disabled={active} onChange={event=>setLabel(event.target.value)}/></label>
