@@ -32,6 +32,10 @@ use tauri_plugin_notification::NotificationExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    #[cfg(target_os = "linux")]
+    desktop::single_instance::report_existing_instance(&context.config().identifier);
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -318,7 +322,7 @@ pub fn run() {
             commands::crypto_cmds::get_unlocked_sections_cmd,
             commands::crypto_cmds::generate_password_cmd,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             // 应用退出：全量锁定（密钥清零 + 内存索引随进程退出销毁，design D2/D4）

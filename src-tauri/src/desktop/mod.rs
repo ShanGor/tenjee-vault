@@ -1,5 +1,8 @@
 //! Native desktop entry points share the same `app-action` protocol as the React command panel.
 
+#[cfg(target_os = "linux")]
+pub mod single_instance;
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 

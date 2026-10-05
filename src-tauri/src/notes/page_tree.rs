@@ -593,7 +593,7 @@ mod tests {
         .is_err());
         move_subtree(&mut conn, files.path(), &session, &child.id, Some(&b.id), 0).unwrap();
         assert_eq!(
-            path(&conn, &grandchild.id).unwrap(),
+            path(&conn, &session, &grandchild.id).unwrap(),
             "B / Child / Grandchild"
         );
         recycle(&mut conn, &session, &grandchild.id).unwrap();
