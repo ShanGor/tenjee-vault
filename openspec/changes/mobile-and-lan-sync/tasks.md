@@ -27,7 +27,7 @@ Implementation is in progress. See [implementation notes](implementation-notes.m
 
 ## 4. Discovery and authentication
 
-- [ ] 4.1 Implement explicit local-interface discovery/advertising/listeners and manual IP/port fallback; verify no sockets/advertisements outside mode, local IPv4/IPv6 connection, and public-address rejection.
+- [ ] 4.1 Implement explicit LAN discovery/advertising/listeners, named interface selection for routed private/VPN peers, hostname/IP and port entry, and an optional saved fixed port; verify no sockets/advertisements outside mode, local/VPN IPv4/IPv6 connection, DNS cancellation/fallback, fixed-port conflicts, and public-address rejection, including real Tailscale and regular VPN checks.
 - [ ] 4.2 Select and pin established PAKE/TLS implementations and document the complete channel-binding construction; verify published protocol vectors and a reviewed authentication/downgrade/replay threat model before integrating payload transfer.
 - [ ] 4.3 Implement eight-digit code expiry, global five-attempt limit, single-use consumption, and mutual key confirmation; verify wrong/expired/replayed codes, parallel attempts, and intercepted handshakes cannot gain data access.
 - [ ] 4.4 Implement bounded protocol/schema negotiation, authenticated summary, and mutual scope approval; verify rejection, incompatible versions, or missing approval prevents workspace payload transfer.

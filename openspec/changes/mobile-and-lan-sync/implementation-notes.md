@@ -49,3 +49,11 @@ No acceptance task is marked complete based only on compilation. See [tasks](tas
 | x86_64 emulator | `artifacts/android/tenjee-vault-debug-x86_64.apk` | 70,537,437 | `7024741fb83b296abd1bc14e94936ab64e0b38ece218cdc56d86ef71b2fc4230` |
 
 These debug builds contain bundled frontend assets and permit development-only LAN exchange. Installation and current native flows have not been physically validated.
+
+## Hostname and VPN extension — 2026-10-05
+
+Device exchange now accepts hostname/IP and port entry through the OS DNS/MagicDNS resolver. Automatic LAN selection retains same-link checks; explicit interface selection supports routed private/VPN peers and Tailscale IPv4/IPv6 addresses. Listeners and outbound source addresses use the selected interface addresses. VPN interfaces do not use mDNS. A locally saved fixed listening port is optional; blank keeps automatic allocation, and occupied fixed ports report an error. DNS/result limits, cancellation checks, address-family fallback, IPv6 scopes, and public/special-address rejection are enforced before pairing. The existing authentication, mutual approval, and release gate remain in place.
+
+Recorded checks for this extension: 11 targeted Rust network tests passed (including actual loopback TCP source binding, connection fallback/cancellation, occupied-port handling, and listener release); Linux Rust library checking and ARM64 Android Rust library checking passed; the frontend production build and frontend/script tests passed; strict OpenSpec validation and diff whitespace checks passed. Dependency verification uses the repository's npm lockfile. No frontend dependency changes are included.
+
+Live LAN/VPN/Tailscale exchanges, Android interface visibility and MagicDNS behavior, and full stop/suspension acceptance remain unverified. The updated [phone checklist](../../../docs/android-validation.md) covers these scenarios. Existing copied APKs above predate this extension and were not rebuilt. Task 4.1 includes physical networking acceptance and remains open; these checks do not complete the change's broader protocol/mobile/release acceptance.

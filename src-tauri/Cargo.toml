@@ -47,6 +47,7 @@ rustls = { version = "=0.23.45", default-features = false, features = ["std", "r
 rcgen = { version = "=0.14.10", features = ["zeroize"] }
 mdns-sd = "=0.21.1"
 if-addrs = "=0.15.0"
+socket2 = "=0.6.5"
 fs2 = "=0.4.3"
 tempfile = "3"
 

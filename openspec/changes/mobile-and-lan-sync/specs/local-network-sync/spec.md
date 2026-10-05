@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Allow a user's own devices on the same reachable local network to exchange local workspace changes securely through an explicit, temporary pairing session without an account or hosted service.
+Allow a user's own devices on a reachable LAN or private VPN, including Tailscale, to exchange local workspace changes securely through an explicit, temporary pairing session without an account or hosted sync service.
 
 ## ADDED Requirements
 
 ### Requirement: Explicit local discovery
 
-The system SHALL expose “Find other devices and exchange” on desktop and mobile. Discovery, advertising, and incoming sync connections SHALL be disabled outside this mode. Both devices SHALL enter the mode, and discovered entries SHALL show a device label and platform, not workspace content. Manual local address/port entry SHALL be available when multicast discovery fails. Connections SHALL be limited to eligible local interfaces with no cloud relay, router port mapping, or Internet discovery. Network/permission failures SHALL offer actionable guidance without disabling offline features.
+The system SHALL expose “Find other devices and exchange” on desktop and mobile. Discovery, advertising, and incoming sync connections SHALL be disabled outside this mode. Both devices SHALL enter the mode, and discovered entries SHALL show a device label and platform, not workspace content. Automatic selection SHALL remain limited to directly connected private LAN peers. Users SHALL be able to select an eligible local interface explicitly for routed private/VPN peers, including Tailscale's 100.64.0.0/10 addresses and private IPv6 addresses. Listeners and outbound source addresses SHALL use the selected network addresses. Incoming peers SHALL be validated against the receiving listener's interface. Discovery/advertising SHALL be restricted to LAN interfaces. The app SHALL NOT operate a cloud relay, router port mapping, or Internet discovery; a user-managed VPN may supply its own routing/relay. Network/permission failures SHALL offer actionable guidance without disabling offline features.
 
 #### Scenario: Discover a laptop and phone
 - **WHEN** both devices enter exchange mode on a local network that permits peer traffic
@@ -17,6 +17,30 @@ The system SHALL expose “Find other devices and exchange” on desktop and mob
 #### Scenario: Router blocks peer discovery
 - **WHEN** no peers are discovered because multicast or guest-network isolation blocks traffic
 - **THEN** the app offers manual address entry and explains that both devices need a mutually reachable network
+
+### Requirement: Hostname and configurable-port connections
+
+Manual entry SHALL accept a hostname or numeric IP plus a nonzero port, including bracketed IPv6 with a numeric link-local scope. The system SHALL resolve hostnames with the OS resolver, validate each numeric result against the session's network policy, and attempt eligible results without resolving again. Public, loopback, unspecified, multicast, IPv4-mapped IPv6, unscoped/wrong-scope link-local, and zero-port targets SHALL be rejected. DNS waiting and TCP connection attempts SHALL be bounded and cancellation SHALL prevent a late DNS response from starting a connection. The receiver SHALL support automatic ports or an optional locally saved fixed port from 1–65535. An occupied fixed port SHALL produce an error without silent port substitution. Hostnames SHALL NOT replace temporary code authentication or mutual approval.
+
+#### Scenario: Connect using Tailscale MagicDNS across networks
+- **WHEN** both devices select their Tailscale interface, their VPN permits peer traffic, and the user enters the receiver's resolvable MagicDNS name and listening port
+- **THEN** the app connects using eligible resolved overlay addresses, authenticates with a fresh code, and requires approval on both devices before transferring workspace payloads
+
+#### Scenario: Use a regular VPN with routed peers
+- **WHEN** both devices select their VPN interface and the peer has a reachable private address outside the local interface's subnet
+- **THEN** manual hostname/IP and port entry can connect without requiring a directly connected subnet
+
+#### Scenario: Resolve multiple addresses
+- **WHEN** a hostname returns public and eligible private addresses or an unreachable eligible address before a reachable one
+- **THEN** only eligible numeric addresses are attempted, IPv4/IPv6 alternatives are tried within a bounded budget, and public addresses are never connected
+
+#### Scenario: Stop during hostname lookup
+- **WHEN** the user stops exchange before DNS returns
+- **THEN** the session ends without waiting indefinitely for the system resolver and a late DNS result cannot open a connection
+
+#### Scenario: Reuse a fixed port
+- **WHEN** the user configures a fixed listening port and starts a later exchange
+- **THEN** listeners reuse that port while active, and an unavailable port prompts the user to choose another port or automatic allocation
 
 ### Requirement: Temporary code authentication
 

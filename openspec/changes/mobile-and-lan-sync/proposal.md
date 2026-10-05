@@ -2,15 +2,16 @@
 
 ## Why
 
-Tenjee Vault currently targets desktop and stores independent local workspaces. Users need a comfortable phone interface and a way to exchange changes between their own phone and laptop on the same local network while retaining offline use and avoiding a hosted service.
+Tenjee Vault currently targets desktop and stores independent local workspaces. Users need a comfortable phone interface and a way to exchange changes between their own phone and laptop on a reachable LAN or private VPN, including Tailscale, while retaining offline use and avoiding a hosted sync service.
 
 ## What Changes
 
 - Add Android and iOS targets with adaptive navigation, touch interactions, keyboard-aware editing, and platform-specific file and notification integration.
 - Add an explicit “Find other devices and exchange” mode: discover a nearby device, enter its random temporary authentication code, approve the exchange on both devices, then synchronize in both directions.
+- Support manual hostname/IP and port entry, explicit network selection for routed private/VPN peers, and an optional saved fixed listening port. LAN discovery remains the default; VPN connections use manual entry and the operating system's DNS/MagicDNS resolver.
 - Encrypt and authenticate network traffic; keep protected page trees as ciphertext and never use pairing to unlock them.
 - Synchronize logical records and attachments incrementally, including offline edits and deletions, with durable revision tracking, resumable transfer, and visible conflicts instead of silent overwrites.
-- Document current desktop support separately from the planned mobile and LAN capabilities. Internet/cloud sync, accounts, collaboration, and unattended background sync remain outside this change.
+- Document current desktop support separately from the planned mobile and device exchange capabilities. Public Internet endpoints, hosted cloud sync, accounts, collaboration, and unattended background sync remain outside this change. A user-managed VPN may provide its own encrypted routing or relays.
 
 ## Capabilities
 

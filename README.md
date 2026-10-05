@@ -115,7 +115,8 @@ finite date range as Gregorian instances.
 ## Planned mobile and local network exchange
 
 The next planned capability adds Android/iOS layouts and an explicit **Find other devices and
-exchange** mode for a phone and laptop on the same reachable local network. Devices pair with a
+exchange** mode for a phone and laptop on a reachable LAN or private VPN, including Tailscale. Manual
+hostname/IP and port entry, network selection, and an optional fixed listening port support VPN use. Devices pair with a
 random, temporary authentication code, approve on both screens, and synchronize notes, tasks,
 calendar, tags, and attachments in both directions over an authenticated encrypted connection.
 Offline edits and conflicts are preserved; protected page trees remain encrypted and still require

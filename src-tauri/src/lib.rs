@@ -171,6 +171,7 @@ pub fn run() {
             sync::conflicts::exchange_resolve_cmd,
             sync::session::exchange_discard_pending_cmd,
             sync::session::exchange_available_cmd,
+            sync::session::exchange_networks_cmd,
             sync::session::exchange_enter_cmd,
             sync::session::exchange_status_cmd,
             sync::session::exchange_connect_cmd,

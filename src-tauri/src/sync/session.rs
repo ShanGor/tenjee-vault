@@ -34,6 +34,7 @@ struct Mutable {
 
 pub struct Session {
     pub id: String,
+    network: network::Network,
     #[allow(dead_code)]
     app: tauri::AppHandle,
     #[allow(dead_code)]
@@ -137,18 +138,16 @@ impl ExchangeManager {
     pub fn stop(&self) { self.1.store(false,Ordering::SeqCst); if let Some(session)=self.0.lock().unwrap().clone() { session.cancel("Exchange stopped; pair again to resume"); session.join(); } }
 }
 
-fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultResult<Status> {
+fn start(app: tauri::AppHandle, label: String, native_token: String, interface: Option<String>, port: u16) -> VaultResult<Status> {
     if !app.state::<ExchangeManager>().1.load(Ordering::SeqCst) { return Err(VaultError::Validation("Exchange start was interrupted".into())); }
     if label.trim().is_empty() || label.len()>128 || label.chars().any(char::is_control) { return Err(VaultError::Validation("Enter a device label of at most 128 bytes".into())); }
-    let interfaces=network::interfaces()?;
-    let mut listeners=Vec::new();
-    for interface in &interfaces { if let Ok(listener)=TcpListener::bind(network::socket(interface,0)) { listener.set_nonblocking(true)?; listeners.push(listener); } }
-    if listeners.is_empty() { return Err(VaultError::Validation("Cannot listen on the local network; check LAN permission and firewall".into())); }
+    let mut network=network::Network::select(interface.as_deref())?;
+    let listeners=network.listen(port)?;
     let addresses=listeners.iter().map(|l|l.local_addr().map(|a|a.to_string())).collect::<Result<Vec<_>,_>>()?;
     let id=uuid::Uuid::new_v4().to_string();
     let code=Zeroizing::new(format!("{:08}",rand::rngs::OsRng.gen_range(0..100_000_000u32)));
     let identity=auth::ServerIdentity::new()?;
-    let session=Arc::new(Session{id:id.clone(),app:app.clone(),native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
+    let session=Arc::new(Session{id:id.clone(),network,app:app.clone(),native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
     *session.listeners.lock().unwrap()=listeners;
     {
         let manager=app.state::<ExchangeManager>(); let mut current=manager.0.lock().unwrap();
@@ -157,11 +156,14 @@ fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultRes
     }
     let mut active_discovery=session.discovery.lock().unwrap();
     session.check()?;
-    if let Ok(daemon)=ServiceDaemon::new() {
+    let interfaces=session.network.discovery_interfaces();
+    let discovery=if interfaces.is_empty() { None } else { ServiceDaemon::new().ok() };
+    if let Some(daemon)=discovery {
         let _=daemon.disable_interface(IfKind::All);
         for interface in &interfaces { let _=daemon.enable_interface(IfKind::Name(interface.name.clone())); }
         for (index,listener) in session.listeners.lock().unwrap().iter().enumerate() {
             let address=listener.local_addr()?;
+            if !interfaces.iter().any(|interface| interface.ip()==address.ip()) { continue; }
             let instance=format!("{}-{}",id,index);
             let properties=[("session",id.as_str()),("label",label.as_str()),("platform",std::env::consts::OS),("version","1")];
             if let Ok(info)=ServiceInfo::new(SERVICE,&instance,&format!("tenjee-{}.local.",id),address.ip(),address.port(),&properties[..]) { let _=daemon.register(info); }
@@ -178,7 +180,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultRes
                                 let mut addresses=Vec::new();
                                 for ip in info.get_addresses() {
                                     let address=match ip { mdns_sd::ScopedIp::V4(v4)=>std::net::SocketAddr::new((*v4.addr()).into(),info.get_port()),mdns_sd::ScopedIp::V6(v6)=>std::net::SocketAddr::V6(std::net::SocketAddrV6::new(*v6.addr(),info.get_port(),0,v6.scope_id().index)),_=>continue };
-                                    if network::parse_address(&address.to_string()).is_ok() { addresses.push(address.to_string()); }
+                                    if owner.network.allows(address) { addresses.push(address.to_string()); }
                                 }
                                 let mut state=owner.state();
                                 if !addresses.is_empty() && state.peers.len()<100 { state.peers.insert(info.get_fullname().to_string(),Peer{session:id.into(),label:info.get_property_val_str("label").unwrap_or("Tenjee Vault").chars().take(64).collect(),platform:info.get_property_val_str("platform").unwrap_or("unknown").chars().take(32).collect(),addresses}); }
@@ -191,7 +193,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultRes
             }));
         }
         if session.check().is_ok() { *active_discovery=Some(daemon); } else { let _=daemon.shutdown(); }
-    } else { session.state().status.message="Multicast discovery unavailable; use a local IP and port".into(); }
+    } else { session.state().status.message="Nearby discovery is unavailable on this network. Enter the peer hostname/IP and port; for Tailscale, use its MagicDNS name.".into(); }
     drop(active_discovery);
     let listener_count=session.listeners.lock().unwrap().len();
     for index in 0..listener_count {
@@ -201,7 +203,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultRes
                 let accepted={ let listeners=owner.listeners.lock().unwrap(); match listeners.get(index) { Some(listener)=>listener.accept(),None=>break } };
                 match accepted {
                     Ok((socket,address))=>{
-                        if network::parse_address(&address.to_string()).is_err() { continue; }
+                        if !socket.local_addr().is_ok_and(|local| owner.network.allows_incoming(local,address)) { continue; }
                         let code={ let mut state=owner.state(); if state.busy || state.status.attempts_left==0 || Instant::now()>=state.expires { continue; } state.busy=true; Zeroizing::new(state.code.to_string()) };
                         if owner.register_socket(&socket).is_err() { break; }
                         let identity=owner.identity.lock().unwrap().clone();
@@ -238,10 +240,10 @@ fn start(app: tauri::AppHandle, label: String, native_token: String) -> VaultRes
 }
 
 #[tauri::command]
-pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String) -> VaultResult<Status> {
+pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String, interface: Option<String>, port: Option<u16>) -> VaultResult<Status> {
     static ENTER:std::sync::OnceLock<tauri::async_runtime::Mutex<()>>=std::sync::OnceLock::new();
     let _enter=ENTER.get_or_init(||tauri::async_runtime::Mutex::new(())).lock().await;
-    if !cfg!(debug_assertions) {return Err(VaultError::Validation("LAN exchange awaits protocol and physical-device validation before release".into()));}
+    if !cfg!(debug_assertions) {return Err(VaultError::Validation("Device exchange awaits protocol and physical-device validation before release".into()));}
     let owner=app.clone();
     tauri::async_runtime::spawn_blocking(move ||owner.state::<ExchangeManager>().stop()).await.map_err(|_|VaultError::Validation("Exchange cleanup interrupted".into()))?;
     let token=uuid::Uuid::new_v4().to_string();
@@ -257,7 +259,7 @@ pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String) -> VaultRe
         }
     }
     let owner=app.clone(); let session_token=token.clone();
-    let result=tauri::async_runtime::spawn_blocking(move || start(owner,label,session_token)).await.map_err(|_|VaultError::Validation("Cannot start exchange mode".into()))?;
+    let result=tauri::async_runtime::spawn_blocking(move || start(owner,label,session_token,interface,port.unwrap_or(0))).await.map_err(|_|VaultError::Validation("Cannot start exchange mode".into()))?;
     #[cfg(target_os="android")]
     if result.is_err() { let _=crate::mobile::call(app,"endExchange",serde_json::json!({"token":token})).await; }
     result
@@ -288,14 +290,14 @@ pub fn exchange_approve_cmd(app: tauri::AppHandle) -> VaultResult<()> {
 #[tauri::command]
 pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String) -> VaultResult<()> {
     let code=Zeroizing::new(code);
-    let address=network::parse_address(&address)?;
     let session=app.state::<ExchangeManager>().current()?; session.check()?;
     { let mut state=session.state(); if state.busy || state.status.phase!="discovering" { return Err(VaultError::Validation("Another peer is already pairing".into())); } state.busy=true; state.status.phase="pairing".into(); }
     let owner=session.clone();
     session.workers.lock().unwrap().push(std::thread::spawn(move || {
         let result=(|| {
             owner.check()?;
-            let socket=TcpStream::connect_timeout(&address,Duration::from_secs(10))?;
+            let addresses=owner.network.resolve(&address,||owner.check())?;
+            let socket=owner.network.connect(&addresses,||owner.check())?;
             owner.register_socket(&socket)?;
             let mut stream=auth::client(socket,&code)?;
             owner.check()?;
@@ -311,6 +313,11 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
 
 #[tauri::command]
 pub fn exchange_available_cmd()->bool {cfg!(debug_assertions)}
+
+#[tauri::command]
+pub async fn exchange_networks_cmd()->VaultResult<Vec<network::NetworkOption>> {
+    tauri::async_runtime::spawn_blocking(network::options).await.map_err(|_|VaultError::Validation("Cannot list network interfaces".into()))?
+}
 
 pub fn before_protection(app:&tauri::AppHandle,inner:&crate::commands::AppStateInner)->VaultResult<()> {
     app.state::<ExchangeManager>().stop();engine::protection_barrier(inner)
