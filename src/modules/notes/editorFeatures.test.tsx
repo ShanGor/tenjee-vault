@@ -184,6 +184,76 @@ it("disables table and link actions when editing is unavailable", () => {
   act(() => root.render(<EditorToolbar editor={editor} onPickAttachment={() => undefined} disabled />));
   expect(host.querySelector<HTMLButtonElement>('button[aria-label="表格操作"]')?.disabled).toBe(true);
   expect(host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="可折叠区块"]')?.disabled).toBe(true);
+});
+
+it("wraps selected blocks in an editable section, persists collapse state and unwraps without losing content", async () => {
+  editor.setOptions({ editorProps: { handleScrollToSelection: () => true } });
+  toolbar();
+  act(() => {
+    editor.commands.setContent('<p>Hello</p><p><strong>World</strong></p>');
+    editor.commands.setTextSelection({ from: 1, to: 13 });
+  });
+  click("可折叠区块");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+  expect(editor.getJSON().content![0].type).toBe("details");
+  expect(editor.getJSON().content![0].attrs?.open).toBe(true);
+  expect(host.querySelector('button[aria-label="可折叠区块"]')?.getAttribute("aria-pressed")).toBe("true");
+  act(() => editor.commands.insertContent("Title"));
+  expect(host.querySelector("summary")?.textContent).toBe("Title");
+  click("折叠区块");
+  expect(host.querySelector('[data-type="detailsContent"]')?.hasAttribute("hidden")).toBe(true);
+  expect(editor.getJSON().content![0].attrs?.open).toBe(false);
+  expect(host.querySelector('button[aria-label="展开区块"]')?.getAttribute("aria-expanded")).toBe("false");
+  const saved = editor.getJSON();
+  act(() => editor.commands.setContent(saved));
+  expect(host.querySelector('[data-type="detailsContent"]')?.hasAttribute("hidden")).toBe(true);
+  click("展开区块");
+  expect(host.querySelector('[data-type="detailsContent"]')?.hasAttribute("hidden")).toBe(false);
+  act(() => editor.commands.setTextSelection(3));
+  const wrapped = editor.getJSON();
+  click("可折叠区块");
+  expect(editor.getHTML()).toBe("<p>Title</p><p>Hello</p><p><strong>World</strong></p><p></p>");
+  click("撤销");
+  expect(editor.getJSON()).toEqual(wrapped);
+  click("重做");
+  expect(editor.getJSON().content?.some((node) => node.type === "details")).toBe(false);
+});
+
+it("allows section toggling in reading mode without changing the saved document", () => {
+  toolbar();
+  act(() => {
+    editor.commands.setContent('<details><summary>Title</summary><div data-type="detailsContent"><p>Body</p></div></details>');
+    editor.setEditable(false);
+  });
+  const saved = editor.getJSON();
+  click("展开区块");
+  expect(host.querySelector('[data-type="detailsContent"]')?.hasAttribute("hidden")).toBe(false);
+  click("折叠区块");
+  expect(host.querySelector('[data-type="detailsContent"]')?.hasAttribute("hidden")).toBe(true);
+  expect(editor.getJSON()).toEqual(saved);
+});
+
+it("keeps nested sections, formatting and protected references through Markdown mode", () => {
+  const converter = createMarkdownMode(editor.markdown!);
+  const source = formatMarkdown("**Bold**\n\n- Item", 0, 16, "details").source;
+  editor.commands.setContent(converter.parse(source));
+  expect(editor.getJSON().content![0].type).toBe("details");
+  expect(editor.getJSON().content![0].attrs?.open).toBe(true);
+  expect(editor.getHTML()).toContain("<strong>Bold</strong>");
+  const nested = editor.getJSON().content![0];
+  const doc = { type: "doc", content: [{ ...nested, attrs: { open: false }, content: [
+    { type: "detailsSummary", content: [{ type: "text", text: "Outer" }] },
+    { type: "detailsContent", content: [nested,
+      { type: "attachmentBlock", attrs: { attachmentId: "file", fileName: "report.pdf", size: 123 } },
+      { type: "paragraph", content: [{ type: "text", text: "Styled", marks: [{ type: "highlight" }] }] },
+    ] },
+  ] }] };
+  const markdown = converter.serialize(doc);
+  expect(markdown).toContain(":::details");
+  expect(editor.schema.nodeFromJSON(converter.parse(markdown)).toJSON()).toEqual(editor.schema.nodeFromJSON(doc).toJSON());
+  const inserted = formatMarkdown("", 0, 0, "details");
+  expect(inserted.source.slice(inserted.selectionStart, inserted.selectionEnd)).toBe("区块标题");
 });
 
 it("applies quote and code from the toolbar, updates active state and supports undo/redo", () => {

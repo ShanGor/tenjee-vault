@@ -420,6 +420,15 @@ fn inline_text<'a>(events: &[Event<'a>], cursor: &mut usize, stop: TagEnd) -> St
 fn render_blocks(blocks: &[Block], out: &mut String, depth: usize) {
     for block in blocks {
         match block {
+            Block::Details { .. } => {
+                // A single HTML block preserves nested content and the open state.
+                // Encode newlines so blank lines in code do not terminate the HTML block.
+                let html = super::html::render(&PortableDocument {
+                    blocks: vec![block.clone()],
+                });
+                out.push_str(&html.replace('\n', "&#10;"));
+                out.push_str("\n\n");
+            }
             Block::Blockquote { blocks } => {
                 let mut quote = String::new();
                 render_blocks(blocks, &mut quote, depth);
@@ -607,7 +616,9 @@ fn render_table(rows: &[TableRow], out: &mut String) {
 fn collect_blocks(blocks: &[Block], into: &mut Vec<ResourceReference>) {
     for block in blocks {
         match block {
-            Block::Blockquote { blocks } => collect_blocks(blocks, into),
+            Block::Blockquote { blocks } | Block::Details { blocks, .. } => {
+                collect_blocks(blocks, into)
+            }
             Block::Image { resource } => collect_resource(resource, true, into),
             Block::Attachment { resource } => collect_resource(resource, false, into),
             Block::List { items, .. } => {
@@ -755,6 +766,15 @@ mod tests {
     #[test]
     fn resources_inside_quotes_are_still_collected() {
         let document = parse("> ![photo](photo.png)\n").unwrap();
+        assert_eq!(collect_resources(&document).len(), 1);
+    }
+
+    #[test]
+    fn details_round_trip_preserves_code_and_collects_nested_images() {
+        let document = super::super::html::parse("<details><summary>Title</summary><p><strong>Body</strong></p><details open><summary>Nested</summary><pre><code>first\n\nlast</code></pre><img src=\"photo.png\" alt=\"Photo\"></details></details>").unwrap();
+        let source = render(&document);
+        assert!(source.starts_with("<details>"));
+        assert_eq!(parse(&source).unwrap(), document);
         assert_eq!(collect_resources(&document).len(), 1);
     }
 

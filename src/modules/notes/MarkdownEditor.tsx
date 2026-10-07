@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { ui } from "../../i18n/ui";
 
-type Format = "bold" | "italic" | "strike" | "code" | "quote" | "codeBlock" | "heading" | "bullet" | "ordered" | "task" | "link" | "table" | "rule" | "mermaid";
+type Format = "bold" | "italic" | "strike" | "code" | "quote" | "codeBlock" | "heading" | "bullet" | "ordered" | "task" | "link" | "table" | "rule" | "mermaid" | "details";
 
 export function formatMarkdown(source: string, start: number, end: number, format: Format) {
   const selected = source.slice(start, end);
@@ -43,10 +43,15 @@ export function formatMarkdown(source: string, start: number, end: number, forma
         codeBlock: `${fence}text\n${selected || "code"}\n${fence}`,
         mermaid: `${fence}mermaid\n${selected || "graph TD\n  A --> B"}\n${fence}`,
         table: "| A | B |\n| --- | --- |\n|   |   |", rule: "---",
+        details: `:::details {open}\n\n:::detailsSummary\n${ui("区块标题")}\n:::\n\n:::detailsContent\n\n${selected || ui("区块内容")}\n\n:::\n\n:::`,
       };
       text = prefix + blocks[format as keyof typeof blocks] + suffix;
       selectionStart = start + prefix.length;
       selectionEnd = selectionStart + text.length - prefix.length - suffix.length;
+      if (format === "details") {
+        selectionStart = start + prefix.length + blocks.details.indexOf(ui("区块标题"));
+        selectionEnd = selectionStart + ui("区块标题").length;
+      }
     }
   }
   return { source: source.slice(0, start) + text + source.slice(end), selectionStart, selectionEnd };
@@ -91,7 +96,7 @@ export function MarkdownEditor({ value, onChange, onFiles, onPasteText, disabled
       {([
         ["heading", "标题"], ["bold", "加粗"], ["italic", "斜体"], ["strike", "删除线"], ["code", "行内代码"],
         ["quote", "引用"], ["codeBlock", "代码块"], ["link", "链接"], ["bullet", "• 列表"], ["ordered", "1. 列表"],
-        ["task", "☑ 待办"], ["table", "表格"], ["rule", "分隔线"], ["mermaid", "Mermaid 图表"],
+        ["task", "☑ 待办"], ["table", "表格"], ["rule", "分隔线"], ["mermaid", "Mermaid 图表"], ["details", "可折叠区块"],
       ] as const).map(([format, label]) => <button type="button" key={format} className={btn} disabled={disabled}
         onMouseDown={(event) => event.preventDefault()} onClick={() => apply(format)}>{ui(label)}</button>)}
       <label className={`${btn} cursor-pointer`}>

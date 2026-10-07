@@ -88,6 +88,15 @@ impl Canvas<'_> {
     }
     fn block(&mut self, block: &Block, depth: usize) -> VaultResult<()> {
         match block {
+            Block::Details {
+                summary, blocks, ..
+            } => {
+                self.text(&inline_text(summary), BODY_SIZE, depth as f32 * 7.0);
+                self.advance(2.0);
+                for child in blocks {
+                    self.block(child, depth + 1)?;
+                }
+            }
             Block::Blockquote { blocks } => {
                 self.text(&blocks_text(blocks), BODY_SIZE, (depth + 1) as f32 * 7.0);
                 self.advance(2.0);
@@ -216,6 +225,9 @@ fn blocks_text(blocks: &[Block]) -> String {
     blocks
         .iter()
         .map(|block| match block {
+            Block::Details {
+                summary, blocks, ..
+            } => format!("{} {}", inline_text(summary), blocks_text(blocks)),
             Block::Blockquote { blocks } => blocks_text(blocks),
             Block::CodeBlock { text, .. } => text.clone(),
             Block::HorizontalRule => String::new(),
@@ -320,6 +332,19 @@ mod tests {
                         alt: Some("图片".into()),
                         ..Resource::default()
                     },
+                },
+                Block::Details {
+                    open: false,
+                    summary: vec![Inline::Text {
+                        text: "Collapsed section".into(),
+                        marks: vec![],
+                    }],
+                    blocks: vec![Block::Paragraph {
+                        content: vec![Inline::Text {
+                            text: "Include hidden content in PDF".into(),
+                            marks: vec![],
+                        }],
+                    }],
                 },
             ],
         };

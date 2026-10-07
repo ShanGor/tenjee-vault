@@ -26,6 +26,11 @@ pub enum Block {
     Blockquote {
         blocks: Vec<Block>,
     },
+    Details {
+        open: bool,
+        summary: Vec<Inline>,
+        blocks: Vec<Block>,
+    },
     CodeBlock {
         language: Option<String>,
         text: String,
@@ -166,6 +171,27 @@ fn parse_block(value: &Value) -> VaultResult<Block> {
         "blockquote" => Ok(Block::Blockquote {
             blocks: parse_blocks(contents(node)?)?,
         }),
+        "details" => {
+            let children = contents(node)?;
+            if children.len() != 2 {
+                return Err(VaultError::Validation(
+                    "details requires a summary and content".into(),
+                ));
+            }
+            let summary = object(&children[0], "details summary")?;
+            let body = object(&children[1], "details content")?;
+            if string_field(summary, "type")? != "detailsSummary"
+                || string_field(body, "type")? != "detailsContent"
+                || contents(body)?.is_empty()
+            {
+                return Err(VaultError::Validation("Invalid details structure".into()));
+            }
+            Ok(Block::Details {
+                open: optional_bool(attrs(node), "open")?.unwrap_or(false),
+                summary: parse_inlines(contents(summary)?)?,
+                blocks: parse_blocks(contents(body)?)?,
+            })
+        }
         "codeBlock" => {
             let mut text = String::new();
             for value in contents(node)? {
@@ -378,6 +404,18 @@ fn block_to_json(block: &Block) -> Value {
     match block {
         Block::Paragraph { content } => json_node("paragraph", None, inline_to_json(content)),
         Block::Blockquote { blocks } => json_node("blockquote", None, blocks_to_json(blocks)),
+        Block::Details {
+            open,
+            summary,
+            blocks,
+        } => json_node(
+            "details",
+            Some(json!({"open": open})),
+            vec![
+                json_node("detailsSummary", None, inline_to_json(summary)),
+                json_node("detailsContent", None, blocks_to_json(blocks)),
+            ],
+        ),
         Block::CodeBlock { language, text } => json_node(
             "codeBlock",
             Some(json!({"language": language})),
@@ -735,6 +773,31 @@ mod tests {
         let json = source.to_tiptap_json();
         let restored = PortableDocument::from_tiptap_json(&json).unwrap();
         assert_eq!(restored, source);
+    }
+
+    #[test]
+    fn details_round_trip_and_reject_malformed_structure() {
+        let section = json!({"type": "details", "attrs": {"open": false}, "content": [
+            {"type": "detailsSummary", "content": [{"type": "text", "text": "Title"}]},
+            {"type": "detailsContent", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Body"}]}]}
+        ]});
+        let doc = json!({"type": "doc", "content": [section.clone()]});
+        let portable = PortableDocument::from_tiptap_json(&doc).unwrap();
+        assert_eq!(portable.to_tiptap_json(), doc);
+        for children in [
+            json!([]),
+            json!([section]),
+            json!([
+                {"type": "detailsSummary"}, {"type": "detailsContent", "content": []}
+            ]),
+        ] {
+            assert!(
+                PortableDocument::from_tiptap_json(&json!({"type": "doc", "content": [
+                    {"type": "details", "content": children}
+                ]}))
+                .is_err()
+            );
+        }
     }
 
     #[test]

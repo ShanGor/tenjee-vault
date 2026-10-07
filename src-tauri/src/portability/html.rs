@@ -14,6 +14,9 @@ use crate::error::{VaultError, VaultResult};
 /// image loads) is dropped, even if a browser would otherwise display it safely.
 pub fn sanitize(input: &str) -> String {
     let cleaned = Builder::default()
+        .add_tags(["details", "summary"])
+        .add_tag_attributes("details", ["open"])
+        .add_tag_attributes("div", ["data-type"])
         .add_tag_attributes("code", ["class"])
         .clean(input)
         .to_string();
@@ -114,6 +117,37 @@ fn parse_blocks(tokens: &[Token], cursor: &mut usize, end: Option<&str>) -> Vec<
                     level,
                     content: parse_inlines(tokens, cursor, Some(name)),
                 });
+            }
+            Token::Start(name, attrs) if name == "details" => {
+                let open = attr(attrs, "open").is_some();
+                *cursor += 1;
+                while matches!(tokens.get(*cursor), Some(Token::Text(text)) if text.trim().is_empty())
+                {
+                    *cursor += 1;
+                }
+                let summary = if matches!(tokens.get(*cursor), Some(Token::Start(tag, _)) if tag == "summary")
+                {
+                    *cursor += 1;
+                    parse_inlines(tokens, cursor, Some("summary"))
+                } else {
+                    vec![]
+                };
+                let mut body = parse_blocks(tokens, cursor, Some("details"));
+                if body.is_empty() {
+                    body.push(Block::Paragraph { content: vec![] });
+                }
+                blocks.push(Block::Details {
+                    open,
+                    summary,
+                    blocks: body,
+                });
+            }
+            Token::Start(name, attrs)
+                if name == "div"
+                    && attr(attrs, "data-type").as_deref() == Some("detailsContent") =>
+            {
+                *cursor += 1;
+                blocks.extend(parse_blocks(tokens, cursor, Some("div")));
             }
             Token::Start(name, _) if name == "p" || name == "div" => {
                 *cursor += 1;
@@ -399,6 +433,22 @@ fn remove_remote_images(html: &str) -> String {
 fn render_blocks(blocks: &[Block], out: &mut String) {
     for block in blocks {
         match block {
+            Block::Details {
+                open,
+                summary,
+                blocks,
+            } => {
+                out.push_str(if *open {
+                    "<details open=\"\">"
+                } else {
+                    "<details>"
+                });
+                out.push_str("<summary>");
+                render_inlines(summary, out);
+                out.push_str("</summary><div data-type=\"detailsContent\">");
+                render_blocks(blocks, out);
+                out.push_str("</div></details>");
+            }
             Block::Blockquote { blocks } => {
                 out.push_str("<blockquote>");
                 render_blocks(blocks, out);
@@ -541,6 +591,20 @@ fn unescape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn details_round_trip_with_nested_blocks_and_open_state() {
+        let source = "<details open><summary>Outer &amp; title</summary><div data-type=\"detailsContent\"><p><strong>Body</strong></p><details><summary>Inner</summary><pre><code class=\"language-text\">first\n\nlast</code></pre></details></div></details>";
+        let doc = parse(source).unwrap();
+        let rendered = render(&doc);
+        assert!(rendered.starts_with("<details open=\"\"><summary>Outer &amp; title</summary>"));
+        assert!(rendered.contains("<strong>Body</strong>"));
+        assert_eq!(parse(&rendered).unwrap(), doc);
+        assert!(matches!(
+            doc.blocks.first(),
+            Some(Block::Details { open: true, .. })
+        ));
+    }
 
     #[test]
     fn strips_active_content_and_keeps_editable_nodes() {

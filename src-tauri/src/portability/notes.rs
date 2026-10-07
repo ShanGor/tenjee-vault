@@ -159,7 +159,9 @@ fn read_local_resources(
 fn replace_resource_source(blocks: &mut [Block], from: &str, to: &str) {
     for block in blocks {
         match block {
-            Block::Blockquote { blocks } => replace_resource_source(blocks, from, to),
+            Block::Blockquote { blocks } | Block::Details { blocks, .. } => {
+                replace_resource_source(blocks, from, to)
+            }
             Block::Image { resource } | Block::Attachment { resource } => {
                 replace(resource, from, to)
             }

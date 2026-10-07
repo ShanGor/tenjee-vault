@@ -333,6 +333,12 @@ fn rewrite_page_links(
         .ok_or_else(|| VaultError::Validation("导出目标缺少父目录".into()))?;
     for block in blocks {
         match block {
+            Block::Details {
+                summary, blocks, ..
+            } => {
+                rewrite_inlines(summary, from, paths);
+                rewrite_page_links(blocks, output, paths)?;
+            }
             Block::Blockquote { blocks } => rewrite_page_links(blocks, output, paths)?,
             Block::Paragraph { content } | Block::Heading { content, .. } => {
                 rewrite_inlines(content, from, paths)
@@ -509,7 +515,9 @@ fn publish_resources(
 
 fn block_has_resource(block: &Block) -> bool {
     match block {
-        Block::Blockquote { blocks } => blocks.iter().any(block_has_resource),
+        Block::Blockquote { blocks } | Block::Details { blocks, .. } => {
+            blocks.iter().any(block_has_resource)
+        }
         Block::Image { .. } | Block::Attachment { .. } => true,
         Block::List { items, .. } => items
             .iter()
@@ -536,7 +544,7 @@ fn rewrite_resources(
 ) -> VaultResult<()> {
     for block in blocks {
         match block {
-            Block::Blockquote { blocks } => rewrite_resources(
+            Block::Blockquote { blocks } | Block::Details { blocks, .. } => rewrite_resources(
                 conn,
                 files_dir,
                 session,
@@ -682,7 +690,13 @@ mod tests {
         let parent = hierarchy::create_page(&conn, &section.id, None, "Parent").unwrap();
         let child = hierarchy::create_page(&conn, &section.id, Some(&parent.id), "Child").unwrap();
         let session = SessionManager::new();
-        let source = serde_json::json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"pageLink","attrs":{"pageId":child.id,"label":"Child"}}]}]}).to_string();
+        let source = serde_json::json!({"type":"doc","content":[
+            {"type":"paragraph","content":[{"type":"pageLink","attrs":{"pageId":child.id,"label":"Child"}}]},
+            {"type":"details","attrs":{"open":false},"content":[
+                {"type":"detailsSummary","content":[{"type":"text","text":"Section"}]},
+                {"type":"detailsContent","content":[{"type":"paragraph","content":[{"type":"pageLink","attrs":{"pageId":child.id,"label":"Nested link"}}]}]}
+            ]}
+        ]}).to_string();
         pages::save_page(&mut conn, &session, &parent.id, "Parent", &source).unwrap();
         pages::save_page(&mut conn, &session, &child.id, "Child", r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"nested"}]}]}"#).unwrap();
 
@@ -716,6 +730,8 @@ mod tests {
             .path();
         let parent_markdown = std::fs::read_to_string(parent_file).unwrap();
         assert!(!parent_markdown.contains("page://"));
+        assert!(parent_markdown.contains("<details>"));
+        assert!(parent_markdown.contains("Nested link</a>"));
         assert!(parent_markdown.contains(&*child_file.file_name().unwrap().to_string_lossy()));
         assert!(std::fs::read_to_string(child_file)
             .unwrap()

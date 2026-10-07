@@ -65,6 +65,13 @@ export function EditorToolbar({ editor, onPickAttachment, disabled }: {
       {["12px", "14px", "16px", "18px", "22px", "28px"].map((size) => <option key={size}>{size}</option>)}
     </select>
     {toggle(ui("引用"), "blockquote", () => chain().toggleBlockquote().run())}
+    <button type="button" className={btn} aria-label={ui("可折叠区块")} aria-pressed={active("details")}
+      title={ui(active("details") ? "取消折叠区块" : "可折叠区块")}
+      disabled={disabled || !(active("details") ? editor.can().unsetDetails() : editor.can().setDetails())}
+      onMouseDown={(event) => event.preventDefault()} onClick={() => {
+        if (active("details")) chain().unsetDetails().run();
+        else chain().setDetails().updateAttributes("details", { open: true }).run();
+      }}>{ui("可折叠区块")}</button>
     {toggle(ui("代码块"), "codeBlock", () => chain().toggleCodeBlock().run())}
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().insertContent({ type: "codeBlock", attrs: { language: "mermaid" }, content: [{ type: "text", text: "graph TD\n  A --> B" }] }).run()}>{ui("Mermaid 图表")}</button>
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().setHorizontalRule().run()}>{ui("分隔线")}</button>
