@@ -2,6 +2,9 @@
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod single_instance;
+pub mod window_state;
+#[cfg(target_os = "linux")]
+mod appindicator;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -195,6 +198,8 @@ pub fn install(app: &tauri::AppHandle) {
         if let Some(icon) = app.default_window_icon() {
             tray = tray.icon(icon.clone());
         }
+        #[cfg(target_os = "linux")]
+        let _appindicator_logs = appindicator::DeprecationNoticeGuard::new();
         tray.build(app)?;
         if let Some(capabilities) = app.try_state::<DesktopCapabilities>() {
             capabilities.set_tray_available(true);

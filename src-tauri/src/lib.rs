@@ -46,9 +46,7 @@ pub fn run() {
     let builder = builder.plugin(mobile::init());
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
-        .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(
-            tauri_plugin_window_state::StateFlags::POSITION | tauri_plugin_window_state::StateFlags::SIZE,
-        ).build())
+        .plugin(desktop::window_state::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -64,6 +62,10 @@ pub fn run() {
         });
     builder
         .setup(|app| {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if let Err(error) = desktop::window_state::restore(app.handle()) {
+                eprintln!("could not restore window geometry: {error}");
+            }
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if !commands::release_probe_enabled() { let _ = app.notification().request_permission(); }
             let app_data = std::env::var_os("TENJEE_RELEASE_PROBE_DIR").map(std::path::PathBuf::from)

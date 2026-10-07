@@ -5199,6 +5199,7 @@ dependencies = [
  "cap-std",
  "chrono",
  "fs2",
+ "glib",
  "hmac",
  "ical",
  "if-addrs",
