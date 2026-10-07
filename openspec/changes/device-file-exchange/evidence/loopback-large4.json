@@ -1,0 +1,88 @@
+{
+  "recordedAt": "2026-10-06T05:08:21.103Z",
+  "dataset": "large4",
+  "host": {
+    "platform": "linux",
+    "release": "7.0.0-34-generic",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "filesystemType": 16914836
+  },
+  "conditions": "Owned pseudorandom test data; both native peers on IPv4 loopback; no RTT/loss shaping; no GUI or Android provider. This does not establish LAN/VPN release acceptance.",
+  "baseline": {
+    "bytesPerFile": "4294967296",
+    "bytesPerSecond": 865935446.4979641,
+    "fileCount": 1,
+    "generationSeconds": 1.56604897,
+    "incrementalRssBytes": 23359488,
+    "memoryScope": "Both peers in one process; excludes dataset generation/scan",
+    "mode": "baseline",
+    "peakRssBytes": 29655040,
+    "platform": "linux",
+    "processCpuSeconds": 9.163969236,
+    "recipient": {
+      "bytes": "4294967296",
+      "confirmed": true,
+      "phasesSeconds": {
+        "exchanging": 4.921379679,
+        "finished": 0.009394618,
+        "saving": 0.000033487,
+        "verifying": 0.000014085
+      }
+    },
+    "route": "IPv4 loopback, no shaping",
+    "rssBeforeBytes": 6295552,
+    "scanSeconds": 0.000117701,
+    "sender": {
+      "bytes": "4294967296",
+      "confirmed": true,
+      "phasesSeconds": {
+        "exchanging": 4.922166938,
+        "finished": 0.009391329
+      }
+    },
+    "sessionSeconds": 4.959916254,
+    "storageDirectory": "/tmp",
+    "totalBytes": "4294967296"
+  },
+  "exchange": {
+    "bytesPerFile": "4294967296",
+    "bytesPerSecond": 863611084.7275971,
+    "fileCount": 1,
+    "generationSeconds": 1.465388983,
+    "incrementalRssBytes": 23310336,
+    "memoryScope": "Both peers in one process; excludes dataset generation/scan",
+    "mode": "files",
+    "peakRssBytes": 29577216,
+    "platform": "linux",
+    "processCpuSeconds": 9.166924983,
+    "recipient": {
+      "bytes": "4294967296",
+      "confirmed": true,
+      "phasesSeconds": {
+        "approval": 0.000140406,
+        "exchanging": 4.945096905000001,
+        "finished": 0.009908698,
+        "saving": 0.000021056,
+        "verifying": 0.000034473
+      }
+    },
+    "route": "IPv4 loopback, no shaping",
+    "rssBeforeBytes": 6266880,
+    "scanSeconds": 0.000119252,
+    "sender": {
+      "bytes": "4294967296",
+      "confirmed": true,
+      "phasesSeconds": {
+        "approval": 0.000025458,
+        "exchanging": 4.945481152,
+        "finished": 0.009642195
+      }
+    },
+    "sessionSeconds": 4.973265596,
+    "storageDirectory": "/tmp",
+    "totalBytes": "4294967296"
+  },
+  "relativeSessionThroughput": 0.9973157793923701,
+  "relativePayloadThroughput": 0.9952857541494073
+}

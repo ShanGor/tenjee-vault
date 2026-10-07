@@ -3,6 +3,7 @@ import { ui, uiError } from "../../i18n/ui";
 
 import { FormEvent, ReactNode, useState } from "react";
 import { api } from "./api";
+import { protectedNavigationRevision, type UnlockDuration } from "./protectedNavigation";
 import { flushPageSave } from "./pageSave";
 import { useNotesStore } from "./store";
 import { useMobileDismiss } from "../../shared/useMobileDismiss";
@@ -230,12 +231,17 @@ export function SetPasswordDialog({
 export function UnlockDialog({
   spaceId,
   sectionId,
+  pageId,
   onClose,
+  onUnlocked,
 }: {
   spaceId: string;
   sectionId: string;
+  pageId: string;
   onClose: () => void;
+  onUnlocked?: () => void;
 }) {
+  const [duration, setDuration] = useState<UnlockDuration>("page");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -246,8 +252,22 @@ export function UnlockDialog({
     setBusy(true);
     setError(null);
     try {
-      await api.unlockSection(spaceId, sectionId, password);
+      const startingHash = window.location.hash;
+      const startingRevision = protectedNavigationRevision();
+      await api.unlockSection(spaceId, sectionId, pageId, password, duration);
+      setPassword("");
+      if (window.location.hash !== startingHash || protectedNavigationRevision() !== startingRevision) {
+        await api.lockSection(spaceId, sectionId);
+        onClose();
+        return;
+      }
       await refreshTree();
+      if (window.location.hash !== startingHash || protectedNavigationRevision() !== startingRevision) {
+        await api.lockSection(spaceId, sectionId);
+        onClose();
+        return;
+      }
+      onUnlocked?.();
       onClose();
     } catch (err) {
       setError(uiError(err));
@@ -257,12 +277,17 @@ export function UnlockDialog({
   }
 
   return (
-    <Modal title={ui("解锁页面")} onClose={onClose}>
+    <Modal title={ui("解锁页面")} onClose={() => { if (!busy) onClose(); }}>
       <form onSubmit={submit} className="space-y-3">
         <PasswordField value={password} onChange={setPassword} />
+        <fieldset className="space-y-2" disabled={busy}>
+          <legend className="mb-2 text-sm font-medium">{ui("显示时长")}</legend>
+          <label className="flex items-center gap-2 text-sm"><input type="radio" name="unlock-duration" value="page" checked={duration === "page"} onChange={() => setDuration("page")} />{ui("直到切换到其他页面（默认）")}</label>
+          <label className="flex items-center gap-2 text-sm"><input type="radio" name="unlock-duration" value="app" checked={duration === "app"} onChange={() => setDuration("app")} />{ui("直到应用关闭")}</label>
+        </fieldset>
         <ErrorText error={error} />
         <div className="flex justify-end gap-2">
-          <button type="button" className="rounded border px-3 py-1" onClick={onClose}>{ui("取消")}</button>
+          <button type="button" className="rounded border px-3 py-1" disabled={busy} onClick={onClose}>{ui("取消")}</button>
           <button
             type="submit"
             disabled={busy || !password}

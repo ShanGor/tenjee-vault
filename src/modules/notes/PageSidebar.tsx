@@ -15,7 +15,7 @@ import { readViewState, writeViewState } from "../../shared/viewState";
 export default function PageSidebar() {
   const { pageId = "" } = useParams();
   const navigate = useNavigate();
-  const { currentSpaceId, tree, unlocked, settings, loading, refreshTree } = useNotesStore();
+  const { currentSpaceId, tree, unlocked, loading, refreshTree } = useNotesStore();
   const spaceId = currentSpaceId ?? "";
   const [expandedBySpace, setExpandedBySpace] = useState<Record<string, string[]>>(() => readViewState("notes-expanded", {}));
   const expanded = new Set(expandedBySpace[spaceId] ?? []);
@@ -37,7 +37,7 @@ export default function PageSidebar() {
   const locked = (node: SpacePageNode) => node.is_encrypted && !unlocked.includes(node.section_id);
 
   function visiblePages(items: SpacePageNode[]): SpacePageNode[] {
-    return items.flatMap((node) => [node, ...(expanded.has(node.id) && !(locked(node) && settings?.encrypted_section_show_titles === false) ? visiblePages(node.children) : [])]);
+    return items.flatMap((node) => [node, ...(expanded.has(node.id) ? visiblePages(node.children) : [])]);
   }
 
   function handleTreeKeyDown(event: KeyboardEvent<HTMLDivElement>, node: SpacePageNode) {
@@ -47,7 +47,7 @@ export default function PageSidebar() {
     const index = pages.findIndex((page) => page.id === node.id);
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
-      if (event.key === "ArrowRight" && node.children.length && !expanded.has(node.id) && !(locked(node) && settings?.encrypted_section_show_titles === false)) {
+      if (event.key === "ArrowRight" && node.children.length && !expanded.has(node.id)) {
         setExpanded((previous) => new Set([...previous, node.id]));
       } else if (event.key === "ArrowLeft" && expanded.has(node.id)) {
         setExpanded((previous) => { const next = new Set(previous); next.delete(node.id); return next; });
@@ -93,13 +93,13 @@ export default function PageSidebar() {
   function render(node: SpacePageNode, depth: number, index: number) {
     const isLocked = locked(node);
     const open = expanded.has(node.id);
-    const title = isLocked ? ui("受保护页面") : node.title || ui("（无标题）");
+    const title = node.title || ui("（无标题）");
     return <div key={node.id}>
       <div className="page-drop-target" onDragOver={(event) => event.preventDefault()} onDrop={(event) => void move(event, node.parent_page_id, index)} />
       <div className={`page-tree-row ${node.id === pageId ? "active" : ""}`} style={{ paddingLeft: 6 + depth * 14 }} draggable={!isLocked} onKeyDown={(event) => handleTreeKeyDown(event, node)}
         onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.setData("application/x-tenjee-page", node.id); event.dataTransfer.effectAllowed = "move"; }}
         onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); }} onDrop={(event) => void move(event, node.id, node.children.length)}>
-        <button className="page-tree-toggle" aria-label={ui(open ? "收起子页面" : "展开子页面")} aria-expanded={open} disabled={!node.children.length || (isLocked && settings?.encrypted_section_show_titles === false)} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (open) next.delete(node.id); else next.add(node.id); return next; })}>{node.children.length ? open ? "▾" : "▸" : "·"}</button>
+        <button className="page-tree-toggle" aria-label={ui(open ? "收起子页面" : "展开子页面")} aria-expanded={open} disabled={!node.children.length} onClick={() => setExpanded((previous) => { const next = new Set(previous); if (open) next.delete(node.id); else next.add(node.id); return next; })}>{node.children.length ? open ? "▾" : "▸" : "·"}</button>
         <button className="page-tree-link" data-page-id={node.id} title={title} onClick={() => void act(async () => navigate(`/s/${spaceId}/page/${encodeURIComponent(node.id)}`))}>
           <Icon name={isLocked ? "lock" : "notes"} size={15} /><span>{title}</span>
         </button>
@@ -120,7 +120,7 @@ export default function PageSidebar() {
           <button disabled={isLocked} onClick={() => setDeleting(node)}>{ui("删除（进回收站）")}</button>
         </ActionMenu>
       </div>
-      {open && !(isLocked && settings?.encrypted_section_show_titles === false) && node.children.map((child, index) => render(child, depth + 1, index))}
+      {open && node.children.map((child, index) => render(child, depth + 1, index))}
     </div>;
   }
 
@@ -142,7 +142,7 @@ export default function PageSidebar() {
     {element}
     {target && <TemplateDialog spaceId={spaceId} sectionId={target.domain} parentPageId={target.parent} onClose={() => setTarget(null)} onCreated={async (page) => { setTarget(null); await refreshTree(); navigate(`/s/${spaceId}/page/${page.id}`); }} />}
     {dialog?.kind === "protect" && <SetPasswordDialog spaceId={spaceId} pageId={dialog.node.id} onClose={() => setDialog(null)} />}
-    {dialog?.kind === "unlock" && <UnlockDialog spaceId={spaceId} sectionId={dialog.node.section_id} onClose={() => setDialog(null)} />}
+    {dialog?.kind === "unlock" && <UnlockDialog spaceId={spaceId} sectionId={dialog.node.section_id} pageId={dialog.node.id} onUnlocked={() => navigate(`/s/${spaceId}/page/${encodeURIComponent(dialog.node.id)}`)} onClose={() => setDialog(null)} />}
     {(dialog?.kind === "change" || dialog?.kind === "remove") && <ChangePasswordDialog spaceId={spaceId} sectionId={dialog.node.section_id} mode={dialog.kind} onClose={() => setDialog(null)} />}
     {deleting && <ConfirmDialog title={ui("确认删除")} danger message={ui("删除页面「{p0}」及其子页面？可以从回收站恢复。", { p0: deleting.title })} confirmText={ui("删除")} onClose={() => setDeleting(null)} onConfirm={async () => {
       await flushPageSave();

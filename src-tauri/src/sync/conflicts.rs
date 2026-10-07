@@ -211,7 +211,8 @@ fn duplicate_records(conn:&Connection,session:&crate::notes::session::SessionMan
             if let Some(title)=payload.get("title").and_then(|v|v.as_str()).map(str::to_string){
                 let encrypted=payload.get("title_is_encrypted").and_then(|v|v.as_i64())==Some(1);
                 let domain=domain.as_deref().unwrap_or("");let title=crate::notes::reveal_content(session,domain,encrypted,&title)?;
-                payload.insert("title".into(),serde_json::json!(crate::notes::protect_content(session,domain,encrypted,&format!("{title} (copy)"))?));
+                payload.insert("title".into(),serde_json::json!(format!("{title} (copy)")));
+                if record.entity == "pages" { payload.insert("title_is_encrypted".into(),serde_json::json!(0)); }
             } else if let Some(name)=payload.get("name").and_then(|v|v.as_str()).map(str::to_string){payload.insert("name".into(),serde_json::json!(format!("{name} (copy {})",&uuid::Uuid::new_v4().to_string()[..8])));}
         }
         let table=storage::tables(conn)?.into_iter().find(|t|t.name==record.entity).ok_or_else(||invalid("Unsupported duplicate type"))?;

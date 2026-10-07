@@ -148,7 +148,7 @@ pub fn save_page(
     let stored = protect_content(session, &row.section_id, encrypted, content)?;
     tx.execute(
         "UPDATE pages SET title = ?1, content = ?2, title_is_encrypted = ?4, updated_at = datetime('now') WHERE id = ?3",
-        params![protect_content(session, &row.section_id, encrypted, title)?, stored, id, encrypted],
+        params![title, stored, id, false],
     )?;
     tx.commit()?;
     Ok(())

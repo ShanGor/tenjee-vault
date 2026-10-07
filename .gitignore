@@ -23,3 +23,6 @@ artifacts/
 *.njsproj
 *.sln
 *.sw?
+
+# Standalone transfer acceptance harness
+tools/file-exchange-harness/target/

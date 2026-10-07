@@ -152,8 +152,7 @@ pub fn instantiate(inner: &AppStateInner, space_id: &str, section_id: &str, pare
         let mut created_hashes = Vec::new();
         let result = (|| {
         let transaction = conn.unchecked_transaction()?;
-        let stored_title=notes::protect_content(&inner.session,section_id,encrypted,title)?;
-        let mut page = hierarchy::create_page_prepared(&transaction, section_id, parent, &stored_title,encrypted)?;
+        let mut page = hierarchy::create_page_prepared(&transaction, section_id, parent, title,false)?;
         page.title=title.into();
         page.sort_order=transaction.query_row("SELECT COALESCE(MAX(sort_order),-1)+1 FROM pages WHERE parent_page_id IS ?1 AND id!=?2 AND is_deleted=0",params![parent,page.id],|r|r.get(0))?;
         transaction.execute("UPDATE pages SET sort_order=?1 WHERE id=?2",params![page.sort_order,page.id])?;

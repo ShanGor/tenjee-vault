@@ -254,6 +254,15 @@ export default function EditorPage() {
     }, seconds * 1000);
   }
 
+  // Drop cached decrypted editor content on a manual or automatic lock.
+  useEffect(() => {
+    if (!editor || !(locked || sectionLocked)) return;
+    skipSave.current = true;
+    editor.commands.setContent({ type: "doc", content: [{ type: "paragraph" }] });
+    setMarkdownSource("");
+    setShowVersions(false);
+  }, [editor, locked, sectionLocked]);
+
   // 内容载入编辑器（页面加载/回滚后）
   useEffect(() => {
     if (!editor || !page) return;
@@ -425,7 +434,8 @@ export default function EditorPage() {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8">
         <span className="text-4xl">🔒</span>
         <p className="text-neutral-500">{ui("该页面已锁定，内容不可见")}</p>
-        <UnlockDialogOpener spaceId={spaceId} sectionId={sectionId} />
+        <h1 className="text-xl font-semibold">{node?.title}</h1>
+        <UnlockDialogOpener spaceId={spaceId} sectionId={sectionId} pageId={pageId} />
       </div>
     );
   }
@@ -541,12 +551,12 @@ function describeImportResult(result: BatchResult<ImportedPage>): string {
   return ui("导入完成：{p0} 成功，{p1} 跳过，{p2} 失败{p3}", { p0: String(succeeded), p1: String(skipped), p2: String(failures.length), p3: String(reasons ? `（${reasons}）` : "") });
 }
 
-function UnlockDialogOpener({ spaceId, sectionId }: { spaceId: string; sectionId: string }) {
+function UnlockDialogOpener({ spaceId, sectionId, pageId }: { spaceId: string; sectionId: string; pageId: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button className="rounded bg-blue-600 px-4 py-2 text-white" onClick={() => setOpen(true)}>{ui("解锁页面")}</button>
-      {open && <UnlockDialog spaceId={spaceId} sectionId={sectionId} onClose={() => setOpen(false)} />}
+      {open && <UnlockDialog spaceId={spaceId} sectionId={sectionId} pageId={pageId} onClose={() => setOpen(false)} />}
     </>
   );
 }

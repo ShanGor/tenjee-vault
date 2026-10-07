@@ -266,7 +266,7 @@ const MAX_BLOB:u64=512*1024*1024;
 const MAX_STAGE:u64=1024*1024*1024;
 const CHUNK:usize=256*1024;
 fn eligible_domain(domain:&Domain)->bool {
-    domain.records.iter().filter(|r|r.entity=="pages" && !r.deleted).all(|r|r.payload.as_ref().is_some_and(|p|p["title_is_encrypted"].as_i64()==Some(1)))
+    domain.records.iter().filter(|r|r.entity=="pages" && !r.deleted).all(|r|r.payload.as_ref().is_some_and(|p|matches!(p["title_is_encrypted"].as_i64(),Some(0 | 1))))
 }
 fn blob_directory(inner:&AppStateInner,store:&str)->VaultResult<std::path::PathBuf> {
     match store {"tasks"=>Ok(inner.tasks_files_dir()),id if id.starts_with("space:")=>{store_kind(id)?;Ok(inner.files_dir(&id[6..]))},_=>Err(invalid("Unexpected attachment store"))}
@@ -313,7 +313,7 @@ fn receive_requests(stream:&mut impl Read,packets:&[Packet],session:&Session)->V
         let packet=packets.iter().find(|p|p.inventory.meta.id==request.packet).ok_or_else(||invalid("Unknown requested packet"))?;
         let available=packet.inventory.heads.iter().map(|h|h.hash.as_str()).collect::<BTreeSet<_>>();
         if !ids.insert(request.packet.clone()) || request.hashes.is_empty() || request.hashes.len()>available.len() || request.hashes.iter().any(|h|!available.contains(h.as_str())) || request.hashes.iter().collect::<BTreeSet<_>>().len()!=request.hashes.len(){return Err(invalid("Invalid revision request"));}
-        if let Some(group)=&packet.inventory.meta.group {if !group.eligible || request.hashes.len()!=available.len(){return Err(invalid("Protected domain must transfer completely after title migration"));}}
+        if let Some(group)=&packet.inventory.meta.group {if !group.eligible || request.hashes.len()!=available.len(){return Err(invalid("Protected domain must transfer completely"));}}
         result.push(request);
     }Ok(result)
 }
@@ -457,7 +457,7 @@ fn receive_bodies(inner:&AppStateInner,stream:&mut (impl Read+Write),inventory:&
     Ok(stage)
 }
 fn validate_domain(domain:&Domain)->VaultResult<()> {
-    if !eligible_domain(domain){return Err(invalid("Protected payload contains a plaintext title"));}
+    if !eligible_domain(domain){return Err(invalid("Protected payload has an invalid title format"));}
     if domain.context.is_empty() || domain.context.len()>1024 || domain.context.iter().any(|(origin,counter)|origin.is_empty() || origin.len()>80 || !origin.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'-') || *counter==0 || *counter>i64::MAX as u64) || domain.records.iter().any(|r|!storage::dominates(&domain.context,&r.context)){return Err(invalid("Invalid protected causal context"));}
     let root=domain.id.strip_prefix("domain:").ok_or_else(||invalid("Invalid domain ID"))?;
     let wrapper=domain.records.iter().filter(|r|r.entity=="sections" && !r.deleted).collect::<Vec<_>>();
@@ -486,7 +486,11 @@ fn validate_domain(domain:&Domain)->VaultResult<()> {
             if bytes.len()<29 || bytes[0]!=crate::crypto::cipher::FORMAT_V1{return Err(invalid("Unsupported protected ciphertext format"));}Ok(())
         };
         match record.entity.as_str(){
-            "pages"=>{ciphertext(&payload["title"],false)?;if payload["content"]!=""{ciphertext(&payload["content"],false)?;}},
+            "pages"=>{
+                if payload["title_is_encrypted"].as_i64()==Some(1) {ciphertext(&payload["title"],false)?;}
+                else if !payload["title"].is_string() {return Err(invalid("Invalid page title"));}
+                if payload["content"]!=""{ciphertext(&payload["content"],false)?;}
+            },
             "page_versions"=>{if payload["content"]!=""{ciphertext(&payload["content"],false)?;}},
             "section_templates"=>{ciphertext(&payload["name_ciphertext"],true)?;ciphertext(&payload["content_ciphertext"],true)?;},
             "sections"=>{ciphertext(&payload["wrapped_dsk"],true)?;ciphertext(&payload["verifier"],true)?;},_=>{}
@@ -810,13 +814,13 @@ fn convert_plaintext_conflicts(inner:&AppStateInner,store:&str,records:Vec<Recor
                 if record.entity=="sections" {continue;}
                 if let Some(payload)=record.payload.as_mut().and_then(|p|p.as_object_mut()) {
                     if record.entity=="pages" {
-                        for field in ["title","content"] {
+                        for field in ["content"] {
                             let value=payload.get_mut(field).ok_or_else(||invalid("Missing plaintext page field"))?;
                             let text=value.as_str().ok_or_else(||invalid("Invalid plaintext page field"))?;
                             let encrypted=crate::notes::base64_encode(&crate::crypto::cipher::seal(text.as_bytes(),key.as_ref())?);
                             if let serde_json::Value::String(plaintext)=value {plaintext.zeroize();}*value=serde_json::json!(encrypted);
                         }
-                        payload.insert("section_id".into(),serde_json::json!(&section));payload.insert("title_is_encrypted".into(),serde_json::json!(1));
+                        payload.insert("section_id".into(),serde_json::json!(&section));payload.insert("title_is_encrypted".into(),serde_json::json!(0));
                     } else if record.entity=="page_versions" {
                         let value=payload.get_mut("content").ok_or_else(||invalid("Missing plaintext history"))?;
                         let encrypted=crate::notes::base64_encode(&crate::crypto::cipher::seal(value.as_str().ok_or_else(||invalid("Invalid plaintext history"))?.as_bytes(),key.as_ref())?);
@@ -875,4 +879,39 @@ fn conversion_record_groups(inner:&AppStateInner,store:&str,records:&[Record],co
             if let Some(group)=group{result.insert((record.entity.clone(),record.key.clone()),group);}
         }Ok(result)
     })
+}
+
+#[cfg(test)]
+mod visible_title_tests {
+    use super::*;
+    use crate::{db::migrate::{run_migrations, DbKind}, notes::{self, page_tree, pages, session::SessionManager}};
+
+    #[test]
+    fn protected_packets_allow_visible_titles_and_require_encrypted_content() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::connection::configure(&conn).unwrap();
+        run_migrations(&mut conn, DbKind::Space.migrations()).unwrap();
+        storage::install(&mut conn).unwrap();
+        groups::install(&mut conn).unwrap();
+        let session = SessionManager::new();
+        let files = tempfile::tempdir().unwrap();
+        let page = page_tree::create(&conn, &session, None, "Visible private project").unwrap();
+        pages::save_page(&mut conn, &session, &page.id, &page.title, "confidential body").unwrap();
+        let section = page_tree::protect(&mut conn, files.path(), &session, &page.id, "password", true).unwrap();
+        let legacy_title = notes::protect_content(&session, &section, true, &page.title).unwrap();
+        session.lock(&section);
+        let mut domain = groups::inventory(&conn, &storage::inventory(&conn).unwrap()).unwrap().into_iter().find(|d| d.protected).unwrap();
+        assert!(eligible_domain(&domain));
+        validate_domain(&domain).unwrap();
+        let page = domain.records.iter_mut().find(|r| r.entity == "pages" && !r.deleted).unwrap();
+        let payload = page.payload.as_mut().unwrap();
+        assert_eq!(payload["title"], "Visible private project");
+        assert_eq!(payload["title_is_encrypted"], 0);
+        assert_ne!(payload["content"], "confidential body");
+        payload["title"] = serde_json::json!(legacy_title);
+        payload["title_is_encrypted"] = serde_json::json!(1);
+        validate_domain(&domain).unwrap();
+        domain.records.iter_mut().find(|r| r.entity == "pages" && !r.deleted).unwrap().payload.as_mut().unwrap()["content"] = serde_json::json!("confidential body");
+        assert!(validate_domain(&domain).is_err());
+    }
 }

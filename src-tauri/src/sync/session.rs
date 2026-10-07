@@ -14,7 +14,7 @@ use zeroize::{Zeroize, Zeroizing};
 const SERVICE: &str = "_tenjee-vault._tcp.local.";
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Peer { pub session: String, pub label: String, pub platform: String, pub addresses: Vec<String> }
+pub struct Peer { pub session: String, pub label: String, pub platform: String, pub addresses: Vec<String>, #[serde(default)] pub mode:String, #[serde(default)] pub protocol:String, #[serde(default)] pub role:String }
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +24,7 @@ pub struct Status {
     pub peers: Vec<Peer>, pub peer: Option<Peer>, pub local_summary: Option<engine::Summary>, pub peer_summary: Option<engine::Summary>,
     pub result: Option<engine::ExchangeResult>, pub message: String,
     pub transferred_records: usize, pub total_records: usize, pub attachment_bytes: u64,
+    pub mode:String, pub files:Option<crate::file_exchange::engine::Progress>,
 }
 
 struct Mutable {
@@ -35,6 +36,8 @@ struct Mutable {
 pub struct Session {
     pub id: String,
     network: network::Network,
+    file_intent:Option<crate::file_exchange::engine::Intent>,
+    file_root:std::path::PathBuf,
     #[cfg(target_os="android")]
     app: tauri::AppHandle,
     #[cfg(target_os="android")]
@@ -95,6 +98,20 @@ impl Session {
         let handles = std::mem::take(&mut *self.workers.lock().unwrap());
         for handle in handles { let _=handle.join(); }
     }
+    fn claim_pairing(&self)->Option<Zeroizing<String>> {
+        let mut state=self.state();
+        if state.busy||state.status.attempts_left==0||state.code.is_empty()||Instant::now()>=state.expires{return None;}
+        state.busy=true;Some(Zeroizing::new(state.code.to_string()))
+    }
+    fn pairing_failed(&self)->bool {
+        let exhausted={let mut state=self.state();state.busy=false;state.status.attempts_left=state.status.attempts_left.saturating_sub(1);state.status.message="Pairing failed; check the code and remaining attempts".into();state.status.attempts_left==0};
+        self.sockets.lock().unwrap().clear();
+        if exhausted{self.cancel("Pairing code invalidated after five failed attempts");}exhausted
+    }
+    fn expired(&self)->bool {
+        let state=self.state();
+        (state.status.phase=="discovering"&&Instant::now()>=state.expires)||state.touched.elapsed()>Duration::from_secs(1800)||(self.file_intent.is_some()&&matches!(state.status.phase.as_str(),"exchanging"|"verifying"|"saving")&&state.touched.elapsed()>Duration::from_secs(120))
+    }
     fn authenticated(&self) {
         { let mut state=self.state(); state.code.zeroize(); state.busy=true; state.status.code=None; state.status.phase="negotiating".into(); }
         self.close_discovery();
@@ -104,6 +121,11 @@ impl Session {
         loop { self.check()?; if self.state().approved { return Ok(()); } std::thread::sleep(Duration::from_millis(100)); }
     }
     fn exchange(&self, app: &tauri::AppHandle, stream: &mut (impl std::io::Read + std::io::Write), receiver: bool) -> VaultResult<()> {
+        if let Some(intent)=&self.file_intent {
+            let label=self.state().status.label.clone();
+            let mut observed=ObservedFileIo{stream,session:self};
+            return crate::file_exchange::engine::exchange(&self.file_root,intent,&label,&self.id,receiver,&mut observed,self);
+        }
         let state=app.state::<AppState>();
         self.exchange_workspace(&state.inner,stream,receiver)
     }
@@ -116,7 +138,7 @@ impl Session {
         engine::validate_hello(&local,&remote)?;
         {
             let mut status=self.state();
-            status.status.peer=Some(Peer{session:remote.replica.clone(),label:remote.label.clone(),platform:remote.platform.clone(),addresses:vec![]});
+            status.status.peer=Some(Peer{session:remote.replica.clone(),label:remote.label.clone(),platform:remote.platform.clone(),addresses:vec![],mode:"vault".into(),protocol:auth::Protocol::Vault.id().into(),role:String::new()});
             status.status.local_summary=Some(local.summary.clone()); status.status.peer_summary=Some(remote.summary.clone());
         }
         self.phase("approval","");
@@ -133,6 +155,27 @@ impl Session {
     }
 }
 
+
+impl crate::file_exchange::engine::Control for Session {
+    fn check(&self)->VaultResult<()> { Session::check(self) }
+    fn approved(&self)->bool {self.state().approved}
+    fn preview(&self,preview:crate::file_exchange::manifest::Preview,label:&str,platform:&str,peer_session:&str){let mut state=self.state();state.status.peer=Some(Peer{session:peer_session.into(),label:label.into(),platform:platform.into(),addresses:vec![],mode:"files".into(),protocol:auth::Protocol::Files.id().into(),role:self.file_intent.as_ref().map(|i|if i.role()=="send"{"receive"}else{"send"}).unwrap_or("").into()});state.status.files=Some(crate::file_exchange::engine::Progress{preview,..Default::default()});}
+    fn phase(&self,phase:&str){Session::phase(self,phase,"");}
+    fn progress(&self,progress:crate::file_exchange::engine::Progress){let mut state=self.state();state.status.files=Some(progress);state.touched=Instant::now();}
+    fn activity(&self){self.touch();}
+}
+struct ObservedFileIo<'a,T>{stream:&'a mut T,session:&'a Session}
+impl<T:std::io::Read> std::io::Read for ObservedFileIo<'_,T>{
+    fn read(&mut self,buffer:&mut[u8])->std::io::Result<usize>{
+        self.session.check().map_err(std::io::Error::other)?;let n=self.stream.read(buffer)?;
+        if n>0&&matches!(self.session.state().status.phase.as_str(),"exchanging"|"verifying"|"saving"){self.session.touch();}Ok(n)
+    }
+}
+impl<T:std::io::Write> std::io::Write for ObservedFileIo<'_,T>{
+    fn write(&mut self,buffer:&[u8])->std::io::Result<usize>{self.session.check().map_err(std::io::Error::other)?;let n=self.stream.write(buffer)?;if n>0&&self.session.state().status.phase=="exchanging"{self.session.touch();}Ok(n)}
+    fn flush(&mut self)->std::io::Result<()>{self.stream.flush()}
+}
+
 #[derive(Default)]
 pub struct ExchangeManager(Mutex<Option<Arc<Session>>>,AtomicBool);
 impl ExchangeManager {
@@ -141,7 +184,7 @@ impl ExchangeManager {
     pub fn stop(&self) { self.1.store(false,Ordering::SeqCst); if let Some(session)=self.0.lock().unwrap().clone() { session.cancel("Exchange stopped; pair again to resume"); session.join(); } }
 }
 
-fn start(app: tauri::AppHandle, label: String, native_token: String, interface: Option<String>, port: u16) -> VaultResult<Status> {
+fn start(app: tauri::AppHandle, label: String, native_token: String, interface: Option<String>, port: u16, file_intent: Option<crate::file_exchange::engine::Intent>) -> VaultResult<Status> {
     #[cfg(not(target_os="android"))]
     let _=native_token;
     if !app.state::<ExchangeManager>().1.load(Ordering::SeqCst) { return Err(VaultError::Validation("Exchange start was interrupted".into())); }
@@ -152,7 +195,9 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
     let id=uuid::Uuid::new_v4().to_string();
     let code=Zeroizing::new(format!("{:08}",rand::rngs::OsRng.gen_range(0..100_000_000u32)));
     let identity=auth::ServerIdentity::new()?;
-    let session=Arc::new(Session{id:id.clone(),network,#[cfg(target_os="android")] app:app.clone(),#[cfg(target_os="android")] native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
+    let file_root=if file_intent.is_some(){crate::file_exchange::journal::root(&app)?}else{std::path::PathBuf::new()};
+    let mode=if file_intent.is_some(){"files"}else{"vault"};
+    let session=Arc::new(Session{id:id.clone(),network,file_intent,file_root,#[cfg(target_os="android")] app:app.clone(),#[cfg(target_os="android")] native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),mode:mode.into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
     *session.listeners.lock().unwrap()=listeners;
     {
         let manager=app.state::<ExchangeManager>(); let mut current=manager.0.lock().unwrap();
@@ -170,7 +215,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
             let address=listener.local_addr()?;
             if !interfaces.iter().any(|interface| interface.ip()==address.ip()) { continue; }
             let instance=format!("{}-{}",id,index);
-            let properties=[("session",id.as_str()),("label",label.as_str()),("platform",std::env::consts::OS),("version","1")];
+            let properties=[("session",id.as_str()),("label",label.as_str()),("platform",std::env::consts::OS),("version","1"),("mode",mode),("protocol",if session.file_intent.is_some(){auth::Protocol::Files.id()}else{auth::Protocol::Vault.id()}),("role",session.file_intent.as_ref().map(|i|i.role()).unwrap_or("vault")),("file_chunk",if session.file_intent.is_some(){"1048576"}else{"0"}),("file_entries",if session.file_intent.is_some(){"100000"}else{"0"})];
             if let Ok(info)=ServiceInfo::new(SERVICE,&instance,&format!("tenjee-{}.local.",id),address.ip(),address.port(),&properties[..]) { let _=daemon.register(info); }
         }
         if let Ok(events)=daemon.browse(SERVICE) {
@@ -188,7 +233,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
                                     if owner.network.allows(address) { addresses.push(address.to_string()); }
                                 }
                                 let mut state=owner.state();
-                                if !addresses.is_empty() && state.peers.len()<100 { state.peers.insert(info.get_fullname().to_string(),Peer{session:id.into(),label:info.get_property_val_str("label").unwrap_or("Tenjee Vault").chars().take(64).collect(),platform:info.get_property_val_str("platform").unwrap_or("unknown").chars().take(32).collect(),addresses}); }
+                                if !addresses.is_empty() && state.peers.len()<100 { state.peers.insert(info.get_fullname().to_string(),Peer{session:id.into(),label:info.get_property_val_str("label").unwrap_or("Tenjee Vault").chars().take(64).collect(),platform:info.get_property_val_str("platform").unwrap_or("unknown").chars().take(32).collect(),mode:info.get_property_val_str("mode").unwrap_or("vault").chars().take(16).collect(),protocol:info.get_property_val_str("protocol").unwrap_or("").chars().take(96).collect(),role:info.get_property_val_str("role").unwrap_or("").chars().take(16).collect(),addresses}); }
                             }
                             ServiceEvent::ServiceRemoved(_,name)=>{ owner.state().peers.remove(&name); }
                             _=>{}
@@ -209,22 +254,21 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
                 match accepted {
                     Ok((socket,address))=>{
                         if !socket.local_addr().is_ok_and(|local| owner.network.allows_incoming(local,address)) { continue; }
-                        let code={ let mut state=owner.state(); if state.busy || state.status.attempts_left==0 || Instant::now()>=state.expires { continue; } state.busy=true; Zeroizing::new(state.code.to_string()) };
+                        let Some(code)=owner.claim_pairing() else{continue;};
                         if owner.register_socket(&socket).is_err() { break; }
                         let identity=owner.identity.lock().unwrap().clone();
-                        let authenticated=identity.and_then(|identity|auth::server(socket,&identity,&owner.id,&code).ok());
+                        let authenticated=identity.and_then(|identity|auth::server_for(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,&identity,&owner.id,&code).ok());
                         if let Some(mut stream)=authenticated {
                             if Instant::now()>=owner.state().expires || owner.check().is_err() { owner.cancel("Pairing code expired"); break; }
                             owner.authenticated();
-                            let _=stream.sock.set_read_timeout(Some(Duration::from_secs(1800)));
+                            let _=stream.sock.set_read_timeout(Some(Duration::from_secs(if owner.file_intent.is_some(){120}else{1800})));
+                            if owner.file_intent.is_some(){let _=stream.sock.set_write_timeout(Some(Duration::from_secs(120)));}
                             let result=owner.exchange(&app,&mut stream,true);
                             if let Err(error)=result { owner.phase("failed",&serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Exchange failed".into())); }
                             owner.cancel("Exchange ended; pair again to resume");
                             break;
                         } else {
-                            let expired={ let mut state=owner.state(); state.busy=false; state.status.attempts_left=state.status.attempts_left.saturating_sub(1); state.status.message="Pairing failed; check the code and remaining attempts".into(); state.status.attempts_left==0 };
-                            owner.sockets.lock().unwrap().clear();
-                            if expired { owner.cancel("Pairing code invalidated after five failed attempts"); break; }
+                            if owner.pairing_failed(){break;}
                         }
                     }
                     Err(error) if error.kind()==std::io::ErrorKind::WouldBlock=>std::thread::sleep(Duration::from_millis(100)),
@@ -236,7 +280,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
     let owner=session.clone();
     session.workers.lock().unwrap().push(std::thread::spawn(move || {
         while owner.check().is_ok() {
-            let expired={ let state=owner.state(); (state.status.phase=="discovering" && Instant::now()>=state.expires) || state.touched.elapsed()>Duration::from_secs(1800) };
+            let expired=owner.expired();
             if expired { owner.cancel("Exchange expired; generate a fresh pairing code"); break; }
             std::thread::sleep(Duration::from_millis(250));
         }
@@ -246,6 +290,9 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
 
 #[tauri::command]
 pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String, interface: Option<String>, port: Option<u16>) -> VaultResult<Status> {
+    enter(app,label,interface,port,None).await
+}
+pub async fn enter(app: tauri::AppHandle, label: String, interface: Option<String>, port: Option<u16>, file_intent: Option<crate::file_exchange::engine::Intent>) -> VaultResult<Status> {
     static ENTER:std::sync::OnceLock<tauri::async_runtime::Mutex<()>>=std::sync::OnceLock::new();
     let _enter=ENTER.get_or_init(||tauri::async_runtime::Mutex::new(())).lock().await;
     let owner=app.clone();
@@ -255,15 +302,19 @@ pub async fn exchange_enter_cmd(app: tauri::AppHandle, label: String, interface:
     #[cfg(target_os="android")]
     {
         let owner=app.clone();
-        let channel=tauri::ipc::Channel::<serde_json::Value>::new(move |_| { owner.state::<ExchangeManager>().cancel("App suspended; fresh pairing is required"); Ok(()) });
-        if let Err(error)=crate::mobile::call(app.clone(),"beginExchange",serde_json::json!({"suspended":channel,"token":token})).await {
+        let channel=tauri::ipc::Channel::<serde_json::Value>::new(move |event| {
+            let activity=match event{tauri::ipc::InvokeResponseBody::Json(body)=>serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|v|v["activity"]==true),_=>false};
+            if activity{if let Ok(session)=owner.state::<ExchangeManager>().current(){session.touch();}}
+            else{owner.state::<ExchangeManager>().cancel("App suspended; fresh pairing is required");}Ok(())
+        });
+        if let Err(error)=crate::mobile::call(app.clone(),"beginExchange",serde_json::json!({"suspended":channel,"token":token,"discovery":!network::Network::select(interface.as_deref())?.discovery_interfaces().is_empty()})).await {
             app.state::<ExchangeManager>().1.store(false,Ordering::SeqCst);
             let _=crate::mobile::call(app.clone(),"endExchange",serde_json::json!({"token":token})).await;
             return Err(error);
         }
     }
     let owner=app.clone(); let session_token=token.clone();
-    let result=tauri::async_runtime::spawn_blocking(move || start(owner,label,session_token,interface,port.unwrap_or(0))).await.map_err(|_|VaultError::Validation("Cannot start exchange mode".into()))?;
+    let result=tauri::async_runtime::spawn_blocking(move || start(owner,label,session_token,interface,port.unwrap_or(0),file_intent)).await.map_err(|_|VaultError::Validation("Cannot start exchange mode".into()))?;
     #[cfg(target_os="android")]
     if result.is_err() { let _=crate::mobile::call(app,"endExchange",serde_json::json!({"token":token})).await; }
     result
@@ -303,10 +354,11 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
             let addresses=owner.network.resolve(&address,||owner.check())?;
             let socket=owner.network.connect(&addresses,||owner.check())?;
             owner.register_socket(&socket)?;
-            let mut stream=auth::client(socket,&code)?;
+            let mut stream=auth::client_for(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,&code)?;
             owner.check()?;
             owner.authenticated();
-            stream.sock.set_read_timeout(Some(Duration::from_secs(1800)))?;
+            stream.sock.set_read_timeout(Some(Duration::from_secs(if owner.file_intent.is_some(){120}else{1800})))?;
+            if owner.file_intent.is_some(){stream.sock.set_write_timeout(Some(Duration::from_secs(120)))?;}
             owner.exchange(&app,&mut stream,false)
         })();
         if let Err(error)=result { owner.phase("failed",&serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Exchange failed".into())); }
@@ -349,6 +401,7 @@ mod tests {
         Arc::new(Session {
             id: uuid::Uuid::new_v4().to_string(),
             network: network::Network::unbound(),
+            file_intent:None,file_root:std::path::PathBuf::new(),
             inner: Mutex::new(Mutable {
                 status: Status {
                     label: "Test device".into(),
@@ -497,4 +550,30 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn pairing_attempts_are_serial_globally_bounded_expiring_and_single_use(){
+        let owner=session();{let mut state=owner.state();state.code=Zeroizing::new("01234567".into());state.status.phase="discovering".into();state.status.attempts_left=5;}
+        let barrier=Arc::new(std::sync::Barrier::new(16));let mut threads=Vec::new();
+        for _ in 0..16 {let owner=owner.clone();let barrier=barrier.clone();threads.push(std::thread::spawn(move||{barrier.wait();owner.claim_pairing().is_some()}));}
+        assert_eq!(threads.into_iter().filter_map(|t|t.join().ok()).filter(|v|*v).count(),1);
+        for remaining in (0..5).rev(){assert_eq!(owner.pairing_failed(),remaining==0);assert_eq!(owner.status().attempts_left,remaining);if remaining>0{assert!(owner.claim_pairing().is_some());}}
+        assert!(owner.claim_pairing().is_none());assert!(owner.state().code.is_empty());assert!(owner.check().is_err());
+        let owner=session();{let mut state=owner.state();state.code=Zeroizing::new("01234567".into());state.status.phase="discovering".into();state.status.attempts_left=5;state.expires=Instant::now()-Duration::from_secs(1);}
+        assert!(owner.expired());assert!(owner.claim_pairing().is_none());owner.state().expires=Instant::now()+Duration::from_secs(300);assert!(owner.claim_pairing().is_some());owner.authenticated();assert!(owner.state().code.is_empty());assert!(owner.claim_pairing().is_none());
+    }
+    #[test]
+    fn stop_closes_registered_sockets_and_clears_authorization(){
+        let owner=session();owner.state().code=Zeroizing::new("01234567".into());let listener=TcpListener::bind("127.0.0.1:0").unwrap();let mut peer=TcpStream::connect(listener.local_addr().unwrap()).unwrap();let (socket,_)=listener.accept().unwrap();owner.register_socket(&socket).unwrap();owner.cancel("Stopped");
+        use std::io::Read;peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();assert_eq!(peer.read(&mut [0;1]).unwrap(),0);assert!(owner.state().code.is_empty());assert!(owner.identity.lock().unwrap().is_none());assert!(owner.listeners.lock().unwrap().is_empty());assert!(owner.sockets.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn file_watchdog_distinguishes_waiting_approval_and_meaningful_progress(){
+        let mut owner=session();Arc::get_mut(&mut owner).unwrap().file_intent=Some(crate::file_exchange::engine::Intent::Send{batch:uuid::Uuid::new_v4().to_string()});
+        {let mut state=owner.state();state.status.phase="exchanging".into();state.touched=Instant::now()-Duration::from_secs(121);}
+        assert!(owner.expired());owner.touch();assert!(!owner.expired());
+        {let mut state=owner.state();state.status.phase="approval".into();state.touched=Instant::now()-Duration::from_secs(121);}
+        assert!(!owner.expired());owner.state().touched=Instant::now()-Duration::from_secs(1801);assert!(owner.expired());
+    }
+
 }

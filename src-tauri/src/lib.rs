@@ -14,6 +14,7 @@ pub mod desktop;
 #[path = "mobile/desktop.rs"]
 pub mod desktop;
 pub mod error;
+pub mod file_exchange;
 pub mod notes;
 pub mod portability;
 pub mod remind;
@@ -160,12 +161,24 @@ pub fn run() {
             });
             app.manage(state);
             app.manage(sync::session::ExchangeManager::default());
+            app.manage(file_exchange::commands::FileManager::default());
+            file_exchange::native::init(&app.handle());
             app.manage(desktop::DesktopCapabilities::default());
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             desktop::install(&app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            file_exchange::commands::file_exchange_available_cmd,
+            file_exchange::commands::file_exchange_select_cmd,
+            file_exchange::commands::file_exchange_destination_cmd,
+            file_exchange::commands::file_exchange_prepare_cmd,
+            file_exchange::commands::file_exchange_cancel_prepare_cmd,
+            file_exchange::commands::file_exchange_preview_cmd,
+            file_exchange::commands::file_exchange_history_cmd,
+            file_exchange::commands::file_exchange_discard_cmd,
+            file_exchange::commands::file_exchange_open_destination_cmd,
+            file_exchange::commands::file_exchange_enter_cmd,
             sync::conflicts::exchange_keep_both_cmd,
             sync::conflicts::exchange_conflicts_cmd,
             sync::conflicts::exchange_resolve_cmd,
@@ -315,6 +328,7 @@ pub fn run() {
             commands::notes::search_notes_cmd,
             commands::crypto_cmds::set_section_password_cmd,
             commands::crypto_cmds::unlock_section_cmd,
+            commands::crypto_cmds::protected_page_navigation_cmd,
             commands::crypto_cmds::lock_section_cmd,
             commands::crypto_cmds::lock_all_sections_cmd,
             commands::crypto_cmds::change_section_password_cmd,

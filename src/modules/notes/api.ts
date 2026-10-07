@@ -147,6 +147,12 @@ export function rethrow(e: unknown): never {
 }
 
 import { invoke } from "@tauri-apps/api/core";
+import { waitForProtectedNavigation, type UnlockDuration } from "./protectedNavigation";
+
+async function readProtected<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  await waitForProtectedNavigation();
+  try { return await invoke<T>(command, args); } catch (error) { rethrow(error); }
+}
 
 export const api = {
   // 空间
@@ -171,17 +177,17 @@ export const api = {
     invoke<string>("prepare_restore_cmd", { directory, filename }),
   restoreDiagnostic: () => invoke<RestoreDiagnostic | null>("get_restore_diagnostic_cmd"),
   clearPreRestoreCopies: () => invoke<{ removed: number }>("clear_pre_restore_copies_cmd"),
-  globalSearch: (query: string, limit = 30) => invoke<GlobalSearchHit[]>("global_search_cmd", { query, limit }),
+  globalSearch: (query: string, limit = 30) => readProtected<GlobalSearchHit[]>("global_search_cmd", { query, limit }),
 
   // 导航树
-  getTree: (spaceId: string) => invoke<TreeDto>("get_tree", { spaceId }),
-  listPageTitles: (spaceId: string) => invoke<PageTitle[]>("list_page_titles_cmd", { spaceId }),
+  getTree: (spaceId: string) => readProtected<TreeDto>("get_tree", { spaceId }),
+  listPageTitles: (spaceId: string) => readProtected<PageTitle[]>("list_page_titles_cmd", { spaceId }),
 
   // Space pages; section IDs below are private crypto handles.
   createSpacePage: (spaceId: string, parentPageId: string | null, title: string) =>
     invoke<PageNode>("create_space_page_cmd", { spaceId, parentPageId, title }),
   getPageMetadata: (spaceId: string, pageId: string) =>
-    invoke<SpacePageNode>("get_page_metadata_cmd", { spaceId, pageId }),
+    readProtected<SpacePageNode>("get_page_metadata_cmd", { spaceId, pageId }),
   setPagePassword: (spaceId: string, pageId: string, password: string, confirmIrrecoverable: boolean) =>
     invoke<void>("set_page_password_cmd", { spaceId, pageId, password, confirmIrrecoverable }),
   renamePage: (spaceId: string, id: string, title: string) =>
@@ -191,12 +197,12 @@ export const api = {
   deletePage: (spaceId: string, id: string) => invoke<void>("delete_page_cmd", { spaceId, id }),
   restorePage: (spaceId: string, id: string) => invoke<void>("restore_page_cmd", { spaceId, id }),
   purgePage: (spaceId: string, id: string) => invoke<void>("purge_page_cmd", { spaceId, id }),
-  listTrash: (spaceId: string) => invoke<TrashEntry[]>("list_trash_cmd", { spaceId }),
-  getPage: (spaceId: string, pageId: string) => invoke<Page>("get_page_cmd", { spaceId, pageId }),
+  listTrash: (spaceId: string) => readProtected<TrashEntry[]>("list_trash_cmd", { spaceId }),
+  getPage: (spaceId: string, pageId: string) => readProtected<Page>("get_page_cmd", { spaceId, pageId }),
   savePage: (spaceId: string, pageId: string, title: string, content: string) =>
     invoke<void>("save_page_cmd", { spaceId, pageId, title, content }),
   listVersions: (spaceId: string, pageId: string) =>
-    invoke<PageVersion[]>("list_versions_cmd", { spaceId, pageId }),
+    readProtected<PageVersion[]>("list_versions_cmd", { spaceId, pageId }),
   rollbackVersion: (spaceId: string, pageId: string, versionId: string) =>
     invoke<void>("rollback_version_cmd", { spaceId, pageId, versionId }),
   importNoteFiles: (spaceId: string, sectionId: string, paths: string[], parentPageId: string | null = null) =>
@@ -212,25 +218,27 @@ export const api = {
   // 最近使用
   recordPageOpen: (spaceId: string, pageId: string) =>
     invoke<void>("record_page_open_cmd", { spaceId, pageId }),
-  listRecent: (limit: number) => invoke<RecentEntry[]>("list_recent_cmd", { limit }),
+  listRecent: (limit: number) => readProtected<RecentEntry[]>("list_recent_cmd", { limit }),
 
   // 附件
   saveAttachment: (spaceId: string, sectionId: string, entityId: string, fileName: string, mime: string | null, dataBase64: string) =>
     invoke<Attachment>("save_attachment_cmd", { spaceId, sectionId, entityId, fileName, mime, dataBase64 }),
   openAttachment: (spaceId: string, attachmentId: string) =>
-    invoke<AttachmentData>("open_attachment_cmd", { spaceId, attachmentId }),
+    readProtected<AttachmentData>("open_attachment_cmd", { spaceId, attachmentId }),
   deleteAttachment: (spaceId: string, attachmentId: string) =>
     invoke<void>("delete_attachment_cmd", { spaceId, attachmentId }),
   listAttachments: (spaceId: string, entityId: string) =>
-    invoke<Attachment[]>("list_attachments_cmd", { spaceId, entityId }),
+    readProtected<Attachment[]>("list_attachments_cmd", { spaceId, entityId }),
 
   // 搜索
   searchNotes: (spaceId: string, query: string, limit: number, rootPageId: string | null = null) =>
-    invoke<SearchResult[]>("search_notes_cmd", { spaceId, query, notebookId: null, sectionId: null, limit, rootPageId }),
+    readProtected<SearchResult[]>("search_notes_cmd", { spaceId, query, notebookId: null, sectionId: null, limit, rootPageId }),
 
   // 加密分区
-  unlockSection: (spaceId: string, sectionId: string, password: string) =>
-    invoke<void>("unlock_section_cmd", { spaceId, sectionId, password }),
+  unlockSection: async (spaceId: string, sectionId: string, pageId: string, password: string, duration: UnlockDuration = "page") => {
+    await waitForProtectedNavigation();
+    return invoke<void>("unlock_section_cmd", { spaceId, sectionId, pageId, password, duration });
+  },
   lockSection: (spaceId: string, sectionId: string) =>
     invoke<void>("lock_section_cmd", { spaceId, sectionId }),
   lockAllSections: () => invoke<void>("lock_all_sections_cmd"),

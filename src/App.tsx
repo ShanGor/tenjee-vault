@@ -3,7 +3,8 @@ import { useMobileDismiss } from "./shared/useMobileDismiss";
 import { flushPageSave } from "./modules/notes/pageSave";
 import { Icon, type IconName } from "./shared/Icon";
 import { ui } from "./i18n/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { syncProtectedNavigation } from "./modules/notes/protectedNavigation";
 import { listen } from "@tauri-apps/api/event";
 import { CalendarApp } from "./modules/calendar";
 import { NotesApp } from "./modules/notes";
@@ -33,6 +34,9 @@ export default function App() {
   const [reminderError, setReminderError] = useState("");
   const [fileError, setFileError] = useState("");
   const [path, setPath] = useState(() => window.location.hash.slice(1) || "/notes");
+  useLayoutEffect(() => {
+    void syncProtectedNavigation(window.location.hash).catch(error => setNavigationError(formatError(error)));
+  }, [path, formatError]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [capture, setCapture] = useState<"note" | "task" | null>(null);
   const [shortcuts, setShortcuts] = useState<ShortcutMap>(defaultShortcuts);
@@ -116,7 +120,10 @@ export default function App() {
       window.location.replace("#/notes");
       return;
     }
-    const onHashChange = () => setPath(window.location.hash.slice(1) || "/notes");
+    const onHashChange = () => {
+      void syncProtectedNavigation(window.location.hash).catch(error => setNavigationError(formatError(error)));
+      setPath(window.location.hash.slice(1) || "/notes");
+    };
     window.addEventListener("hashchange", onHashChange);
     writeViewState("last-path", path);
     const currentModule = path.startsWith("/tasks") ? "tasks" : path.startsWith("/calendar") ? "calendar" : path.startsWith("/notes") ? "notes" : null;

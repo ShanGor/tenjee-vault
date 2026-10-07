@@ -9,7 +9,8 @@ import { Icon } from "../../shared/Icon";
 import { ui, uiError } from "../../i18n/ui";
 // 应用外壳：空间侧栏（栏 1）、心跳巡检、锁定事件同步（spec 6.2）。
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { syncProtectedNavigation } from "./protectedNavigation";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
@@ -21,6 +22,9 @@ export default function AppShell() {
   const location = useLocation();
   const compact = useCompactLayout();
   const [navigationError, setNavigationError] = useState("");
+  useLayoutEffect(() => {
+    void syncProtectedNavigation(window.location.hash).catch(error => setNavigationError(uiError(error)));
+  }, [location.pathname]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   useEffect(() => { setDrawerOpen(false); }, [location.pathname, compact]);
   const { spaceId = "" } = useParams();

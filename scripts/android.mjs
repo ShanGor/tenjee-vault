@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { installAndroidNative } from "./android-native.mjs";
 
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
 const defaultSdk = process.platform === "darwin"
@@ -23,6 +24,7 @@ if (!["init", "dev", "build", "open"].includes(args[0])) {
   console.error("Usage: node scripts/android.mjs <init|dev|build|open> [Tauri options]");
   process.exit(1);
 }
+if (args[0] !== "init") installAndroidNative(projectDirectory);
 
 const debugApkSource = path.join(projectDirectory, "src-tauri", "gen", "android", "app", "build", "outputs", "apk", "universal", "debug", "app-universal-debug.apk");
 if (args[0] === "build" && args.includes("--debug") && args.includes("--apk")) {
@@ -63,6 +65,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(
 child.on("error", (error) => { console.error(error.message); process.exitCode = 1; });
 child.on("exit", (code, signal) => {
   process.exitCode = code ?? (signal ? 1 : 0);
+  if (code === 0 && args[0] === "init") installAndroidNative(projectDirectory);
   if (code !== 0 || args[0] !== "build" || !args.includes("--debug") || !args.includes("--apk")) return;
   const targetIndex = args.indexOf("--target");
   const target = targetIndex < 0 ? undefined : args[targetIndex + 1];

@@ -1,0 +1,120 @@
+Recorded 2026-10-06. Excerpts from executed tool logs; full conditions in validation.md.
+
+Frontend and scaffold
+ Test Files  9 passed (9)
+      Tests  17 passed (17)
+# tests 3
+# pass 3
+# fail 0
+
+File engine
+test result: ok. 22 passed; 0 failed; 1 ignored; 0 measured; 243 filtered out; finished in 14.91s
+
+Existing/new sync tests
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 240 filtered out; finished in 2.83s
+
+Windows sources under Wine; reparse test explicitly filtered
+test result: ok. 26 passed; 0 failed; 1 ignored; 0 measured; 1 filtered out; finished in 17.70s
+
+Final full application suite, four threads
+failures:
+
+---- commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content stdout ----
+
+thread 'commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content' (93600) panicked at src/commands/note_tasks.rs:221:67:
+called `Result::unwrap()` on an `Err` value: Validation("Invalid or missing linked todo item")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data stdout ----
+
+thread 'notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data' (94020) panicked at src/notes/page_tree.rs:522:78:
+called `Result::unwrap()` on an `Err` value: Sqlite(SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some("table pages has no column named title_is_encrypted")))
+
+---- notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access stdout ----
+
+thread 'notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access' (94029) panicked at src/notes/sections_crypto.rs:361:14:
+called `Result::unwrap()` on an `Err` value: QueryReturnedNoRows
+
+---- notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out stdout ----
+
+thread 'notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out' (94041) panicked at src/notes/sections_crypto.rs:331:14:
+called `Result::unwrap()` on an `Err` value: QueryReturnedNoRows
+
+---- release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext stdout ----
+
+thread 'release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext' (94095) panicked at src/release_tests.rs:26:76:
+called `Result::unwrap()` on an `Err` value: Sqlite(SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some("table pages has no column named title_is_encrypted")))
+
+
+failures:
+    commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content
+    notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data
+    notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access
+    notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out
+    release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext
+
+test result: FAILED. 260 passed; 5 failed; 2 ignored; 0 measured; 0 filtered out; finished in 23.82s
+
+error: test failed, to rerun pass `--lib`
+
+Unchanged baseline 7c25530
+failures:
+
+---- notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data stdout ----
+
+thread 'notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data' (71783) panicked at src/notes/page_tree.rs:522:78:
+called `Result::unwrap()` on an `Err` value: Sqlite(SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some("table pages has no column named title_is_encrypted")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext stdout ----
+
+thread 'release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext' (71823) panicked at src/release_tests.rs:26:76:
+called `Result::unwrap()` on an `Err` value: Sqlite(SqliteFailure(Error { code: Unknown, extended_code: 1 }, Some("table pages has no column named title_is_encrypted")))
+
+---- notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out stdout ----
+
+thread 'notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out' (71797) panicked at src/notes/sections_crypto.rs:331:14:
+called `Result::unwrap()` on an `Err` value: QueryReturnedNoRows
+
+---- commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content stdout ----
+
+thread 'commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content' (71619) panicked at src/commands/note_tasks.rs:221:67:
+called `Result::unwrap()` on an `Err` value: Validation("Invalid or missing linked todo item")
+
+---- notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access stdout ----
+
+thread 'notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access' (71792) panicked at src/notes/sections_crypto.rs:361:14:
+called `Result::unwrap()` on an `Err` value: QueryReturnedNoRows
+
+
+failures:
+    commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content
+    notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data
+    notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access
+    notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out
+    release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext
+
+test result: FAILED. 233 passed; 5 failed; 1 ignored; 0 measured; 0 filtered out; finished in 10.44s
+
+error: test failed, to rerun pass `--lib`
+error: 1 target failed:
+    `--lib`
+
+Concurrent-space test isolated recheck
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 265 filtered out; finished in 0.11s
+
+Linux unbundled debug build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.42s
+       Built application at: /home/sam/sources/tenjee-vault/src-tauri/target/debug/tenjee-vault
+
+Windows complete application cross-check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.81s
+
+Android ARM64 debug APK
+Android debug APK: /home/sam/sources/tenjee-vault/artifacts/android/tenjee-vault-debug-aarch64.apk
+
+Android x86_64 debug APK
+Android debug APK: /home/sam/sources/tenjee-vault/artifacts/android/tenjee-vault-debug-x86_64.apk
+
+Actual substituted TLS-channel relay (different and reused certificates)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 266 filtered out; finished in 1.26s

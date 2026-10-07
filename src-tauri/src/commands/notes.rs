@@ -375,8 +375,8 @@ pub fn rename_page_cmd(
                 .session
                 .with_dsk(&node.page.section_id, |_| Ok(()))?;
         }
-        let stored=crate::notes::protect_content(&state.inner.session,&node.page.section_id,node.is_encrypted,title.trim())?;
-        conn.execute("UPDATE pages SET title=?1,title_is_encrypted=?2,updated_at=datetime('now') WHERE id=?3",rusqlite::params![stored,node.is_encrypted,id])?;
+        let stored=title.trim();
+        conn.execute("UPDATE pages SET title=?1,title_is_encrypted=?2,updated_at=datetime('now') WHERE id=?3",rusqlite::params![stored,false,id])?;
         refresh_page_index(&state.inner, conn, &id)
     })
 }

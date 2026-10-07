@@ -149,7 +149,7 @@ export default function SettingsPage() {
     <section className="rounded-lg border p-4"><h2>{t("settings.security")}</h2><div className="mt-3 grid gap-3">
       <label>{t("settings.auto-lock")} <input className="rounded border p-1" type="number" min="1" value={settings.section_auto_lock_minutes} onChange={(event) => void set("section_auto_lock_minutes",event.target.value)} /></label>
       <label>{t("settings.clipboard")} <input className="rounded border p-1" type="number" min="0" value={settings.clipboard_auto_clear_seconds} onChange={(event) => void set("clipboard_auto_clear_seconds",event.target.value)} /></label>
-      <label><input type="checkbox" checked={settings.encrypted_section_show_titles} onChange={(event) => void set("encrypted_section_show_titles",String(event.target.checked))} /> {t("settings.show-titles")}</label>
+      <p className="text-sm text-neutral-500">{ui("受保护页面的标题始终可见，正文、历史版本和附件保持加密。")}</p>
     </div></section>
     <section className="rounded-lg border p-4"><h2>{t("settings.calendar")}</h2><div className="mt-3 flex flex-wrap gap-3">
       {([ ["lunar_overlay_enabled","settings.lunar"], ["festivals_enabled","settings.festivals"], ["solar_terms_enabled","settings.solar-terms"] ] as const).map(([key,label]) => <label key={key}><input type="checkbox" checked={settings[key]} onChange={(event) => void set(key,String(event.target.checked))} /> {t(label)}</label>)}

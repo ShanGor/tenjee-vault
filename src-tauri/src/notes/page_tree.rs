@@ -114,8 +114,8 @@ pub fn create(
 ) -> VaultResult<PageSummary> {
     let domain = target_domain(conn, session, parent)?;
     let encrypted=section_encrypted(conn, &domain)?;
-    let stored_title=protect_content(session,&domain,encrypted,title)?;
-    let mut page = hierarchy::create_page_prepared(conn, &domain, parent, &stored_title,encrypted)?;
+    if encrypted { session.with_dsk(&domain, |_| Ok(()))?; }
+    let mut page = hierarchy::create_page_prepared(conn, &domain, parent, title,false)?;
     page.title=title.into();
     let content = protect_content(session, &domain, section_encrypted(conn, &domain)?, "")?;
     conn.execute("UPDATE pages SET content=?1,sort_order=(SELECT COALESCE(MAX(sort_order),-1)+1 FROM pages WHERE parent_page_id IS ?2 AND id!=?3) WHERE id=?3",params![content,parent,page.id])?;
@@ -179,7 +179,7 @@ fn transfer(
         }
         conn.execute(
             "UPDATE pages SET section_id=?1,content=?2,title=?4,title_is_encrypted=?5 WHERE id=?3",
-            params![target, stored, id, protect_content(session,target,target_encrypted,&reveal_content(session,&source,source_encrypted && title_flag,&title)?)?, target_encrypted],
+            params![target, stored, id, reveal_content(session,&source,source_encrypted && title_flag,&title)?, false],
         )?;
     }
     Ok(())
@@ -519,12 +519,18 @@ mod tests {
             hierarchy::create_section_group(&conn, &nb.id, Some(&group.id), "Alpha").unwrap();
         let section =
             hierarchy::create_section(&conn, &nb.id, Some(&nested.id), "Private", None).unwrap();
-        let page = hierarchy::create_page(&conn, &section.id, None, "Notes").unwrap();
-        let child = hierarchy::create_page(&conn, &section.id, Some(&page.id), "Child").unwrap();
+        // Build the old schema directly: current writers require newer columns.
+        let page_id = new_id();
+        let child_id = new_id();
+        let (wrapped, _) = wrap_dsk("password").unwrap();
+        let keys = crate::crypto::keys::unwrap_dsk(&wrapped, "password").unwrap();
         let session = SessionManager::new();
-        pages::save_page(&mut conn, &session, &page.id, "Notes", "confidential").unwrap();
-        let keys = sections_crypto::set_password(&mut conn, &section.id, "password", true).unwrap();
         session.insert(&section.id, keys);
+        conn.execute("UPDATE sections SET is_encrypted=1,kdf_salt=?1,kdf_params=?2,verifier=?3,wrapped_dsk=?4 WHERE id=?5",params![wrapped.salt,serde_json::json!({"m_cost":wrapped.m_cost,"t_cost":wrapped.t_cost,"p_cost":wrapped.p_cost}).to_string(),wrapped.verifier,wrapped.wrapped_dsk,section.id]).unwrap();
+        conn.execute("INSERT INTO pages(id,section_id,title,content) VALUES (?1,?2,'Notes',?3)",params![page_id,section.id,protect_content(&session,&section.id,true,"confidential").unwrap()]).unwrap();
+        conn.execute("INSERT INTO pages(id,section_id,parent_page_id,title,content) VALUES (?1,?2,?3,'Child',?4)",params![child_id,section.id,page_id,protect_content(&session,&section.id,true,"").unwrap()]).unwrap();
+        let page = hierarchy::PageSummary {id:page_id,section_id:section.id.clone(),parent_page_id:None,title:"Notes".into(),sort_order:0,updated_at:String::new()};
+        let child = hierarchy::PageSummary {id:child_id,section_id:section.id.clone(),parent_page_id:Some(page.id.clone()),title:"Child".into(),sort_order:0,updated_at:String::new()};
         let ciphertext: String = conn
             .query_row("SELECT content FROM pages WHERE id=?1", [&page.id], |r| {
                 r.get(0)
@@ -804,6 +810,42 @@ mod tests {
     }
 
     #[test]
+    fn locked_titles_stay_readable_and_legacy_encrypted_titles_migrate_once() {
+        let mut conn = db();
+        let session = SessionManager::new();
+        let files = tempfile::tempdir().unwrap();
+        let root = create(&conn, &session, None, "Private project").unwrap();
+        let child = create(&conn, &session, Some(&root.id), "Budget").unwrap();
+        pages::save_page(&mut conn, &session, &child.id, "Budget", "secret body").unwrap();
+        let domain = protect(&mut conn, files.path(), &session, &root.id, "password", true).unwrap();
+        let created = create(&conn, &session, Some(&root.id), "New page").unwrap();
+        pages::save_page(&mut conn, &session, &created.id, "Renamed page", "more secrets").unwrap();
+        session.lock(&domain);
+        let mut nodes = tree(&conn).unwrap();
+        hydrate(&conn, &session, &mut nodes).unwrap();
+        assert_eq!(nodes[0].page.title, "Private project");
+        assert_eq!(nodes[0].children[0].page.title, "Budget");
+        assert_eq!(visible_title(&conn, &session, &created.id).unwrap(), "Renamed page");
+        assert!(pages::get_page(&conn, &session, &child.id).is_err());
+        assert!(crate::search::search(&conn, "secret", &[], 100).unwrap().is_empty());
+        session.insert(&domain, sections_crypto::unlock_keys(&conn, &domain, "password").unwrap());
+        let encrypted = protect_content(&session, &domain, true, "Legacy title").unwrap();
+        conn.execute("UPDATE pages SET title=?1,title_is_encrypted=1 WHERE id=?2", params![encrypted,child.id]).unwrap();
+        let body: String = conn.query_row("SELECT content FROM pages WHERE id=?1", [&child.id], |r| r.get(0)).unwrap();
+        session.lock(&domain);
+        assert_eq!(visible_title(&conn, &session, &child.id).unwrap(), "Protected page");
+        assert!(migrate_titles(&mut conn, &session, &domain).is_err());
+        assert!(sections_crypto::unlock_keys(&conn, &domain, "wrong").is_err());
+        session.insert(&domain, sections_crypto::unlock_keys(&conn, &domain, "password").unwrap());
+        migrate_titles(&mut conn, &session, &domain).unwrap();
+        migrate_titles(&mut conn, &session, &domain).unwrap();
+        session.lock(&domain);
+        assert_eq!(visible_title(&conn, &session, &child.id).unwrap(), "Legacy title");
+        let stored: (String, bool, String) = conn.query_row("SELECT title,title_is_encrypted,content FROM pages WHERE id=?1", [&child.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!(stored, ("Legacy title".into(), false, body));
+    }
+
+    #[test]
     fn exporting_page_subtree_includes_empty_parent_and_rejects_locked_children() {
         let mut conn = db();
         let session = SessionManager::new();
@@ -881,7 +923,7 @@ mod tests {
     }
 }
 
-/// Hydrate navigation titles only for local unlocked views.
+/// Resolve public titles and decrypt legacy titles only for local unlocked views.
 pub fn hydrate(conn:&Connection,session:&SessionManager,nodes:&mut [Node])->VaultResult<()> {
     for node in nodes {node.page.title=visible_title(conn,session,&node.page.id)?;hydrate(conn,session,&mut node.children)?;} Ok(())
 }

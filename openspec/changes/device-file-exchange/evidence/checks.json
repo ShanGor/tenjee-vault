@@ -1,0 +1,124 @@
+{
+  "recordedAt": "2026-10-06T05:14:19.448831+00:00",
+  "baselineCommit": "7c25530",
+  "implementation": "uncommitted worktree source hashes below",
+  "tools": {
+    "rustc": "1.95.0 (59807616e 2026-04-14)",
+    "cargo": "1.95.0",
+    "node": "22.22.1",
+    "wine": "10.0",
+    "androidSdk": 36,
+    "androidNdk": "28.2.13676358"
+  },
+  "availability": {
+    "files": "debug_assertions on Linux, Windows, Android only",
+    "vault": "existing debug/release availability preserved"
+  },
+  "tests": {
+    "frontend": {
+      "suites": 9,
+      "passed": 17
+    },
+    "nodeScripts": {
+      "passed": 3
+    },
+    "fileExchange": {
+      "passed": 22,
+      "failed": 0,
+      "ignored": 1
+    },
+    "sync": {
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    "fullRust": {
+      "passed": 260,
+      "failed": 5,
+      "ignored": 2,
+      "threads": 4
+    },
+    "unchangedBaselineRust": {
+      "passed": 233,
+      "failed": 5,
+      "ignored": 1
+    },
+    "baselineFailures": [
+      "commands::note_tasks::tests::links_retry_sync_in_both_directions_and_defer_locked_sources_without_content",
+      "notes::page_tree::tests::migration_preserves_hierarchy_ids_and_encrypted_data",
+      "notes::sections_crypto::tests::change_password_keeps_data_and_rotates_access",
+      "notes::sections_crypto::tests::set_password_migrates_existing_pages_and_locks_search_out",
+      "release_tests::m3_upgrade_and_backup_restore_preserve_all_domains_and_ciphertext"
+    ],
+    "windowsHarnessWine": {
+      "passed": 26,
+      "failed": 0,
+      "ignored": 1,
+      "filtered": 1,
+      "filter": "windows_reparse"
+    }
+  },
+  "builds": {
+    "frontend": "passed",
+    "linuxDebugUnbundled": "passed",
+    "windowsGnuCrossCheck": "passed",
+    "androidArm64DebugApk": "passed",
+    "androidX86_64DebugApk": "passed"
+  },
+  "physicalAcceptance": {
+    "androidAttachedDevices": 0,
+    "nativeWindows": "pending",
+    "lanPeers": "pending",
+    "routedVpnPeers": "pending",
+    "tailscaleDirectAndRelay": "pending"
+  },
+  "sourceSha256": {
+    "scripts/android-native.mjs": "8a82afd6e56c883c03ad380404930cd460d76a9829bce3e011d903c71fdf16a4",
+    "scripts/android.mjs": "814feee53d2e2cf2c3f88821da6060675567aae55a24c218966e6948e0d9dd6b",
+    "scripts/benchmark-device-files.mjs": "7271c074efa4484d8bcb5b8769d65f1a828dee572663b22115220435d59bc791",
+    "src/i18n/ui.ts": "9572d2c0040e7ad475c4326fec80b81a3d86c8819987c480a98afbf009a1c9e7",
+    "src/shared/ExchangePage.tsx": "8ae0de6c9106e6cd7fa25adc0f554e3ef164d2483d3a8d2b75c196241362b833",
+    "src/shared/FileExchangePanel.tsx": "2e550b09f8ab0b0c0e2564ef8897dc73697618c59276e509aade63cdf6fa3b47",
+    "src/shared/fileExchange.ts": "db196e39355b9f04cff7f6c891cacd33f4758a933360d31cc1b1c50b506cca2f",
+    "src-tauri/Cargo.lock": "728a3179af1e92837cded42045258cbf71b41a3a8149d10ffad9fc656a4f527e",
+    "src-tauri/Cargo.toml": "7f88080a7f09d3c503cf7a3aeff6381abdb577f91047ac61d4e67b030cd2aa3b",
+    "src-tauri/android/app/src/main/AndroidManifest.xml": "1417b30403780de9446c613b9568a4af7be9047b19d79280b107d2df3b4224c5",
+    "src-tauri/android/app/src/main/java/com/sam/tenjee_vault/MainActivity.kt": "df03bf718bf24b822a880c4b506acd5eba17d5182ea686cbad831574d3988c5f",
+    "src-tauri/android/app/src/main/java/com/sam/tenjee_vault/NativeServicesPlugin.kt": "d3cd2cb7e498f56049c73d38c9e04ea1dc626f8c1aa07b469dfce168182821a2",
+    "src-tauri/android/app/src/main/java/com/sam/tenjee_vault/ReminderAlarms.kt": "8941d2aeda88e6f38e04cb4e12924358193fb49581e8c315ffefc2381226ab7b",
+    "src-tauri/android/app/src/main/java/com/sam/tenjee_vault/TransferDocuments.kt": "8a77a01505c92b38eea572bda7a84811d178a770ac4490c8ee6729579fd6db99",
+    "src-tauri/android/app/src/main/res/xml/data_extraction_rules.xml": "eda9dddce1e895de1efd716fe75e244187bf8f91a3bb7444c6ea1731e51c74a8",
+    "src-tauri/android/app/src/main/res/xml/file_paths.xml": "5d2ed2dfde37fd702da448a34a44ddaaf5f92b6b01791296edf4f24bf2967515",
+    "src-tauri/src/file_exchange/codec.rs": "8dd00b6526a8dc6cd5dc74c31ca45ecd4e35187d3a244806a9f32415b8fd45ed",
+    "src-tauri/src/file_exchange/commands.rs": "623c5f3994ea1e5eccfd0e2f1f3fa0c116ab8a1a2e07eb25fa1cc2cfac452b78",
+    "src-tauri/src/file_exchange/destination.rs": "4f36fe26c1a505827267de58025b1efd2419dd3cdf5422524ad4a2a0e86353f3",
+    "src-tauri/src/file_exchange/engine.rs": "461bdf49ee7aa7550edd589e920b4e41002ca7ccdc0b0974774224cfe83cbde2",
+    "src-tauri/src/file_exchange/journal.rs": "ebe74484937b9fe3e0a95cb637415853f43e94fde65a845b7e7b7c1a34654ce4",
+    "src-tauri/src/file_exchange/manifest.rs": "483334d8cace7cbbe64dbfc5f2b458b500f01ac4260f17550c4dc01c418b65d0",
+    "src-tauri/src/file_exchange/mod.rs": "e4d09ce4acc776b000978d2941edc28578a453803012c76ec01a21f18856837a",
+    "src-tauri/src/file_exchange/native.rs": "487c35c554d9af626dd2208dc820e9b8074f04574121bce17121897e908362ce",
+    "src-tauri/src/file_exchange/selection.rs": "43f690aa3f4b3a1fcfc7130e14a2a6b631c92c68e15d9f3eff24168288893cf6",
+    "src-tauri/src/file_exchange/tests.rs": "e2987a5654bdee9142315debe0a74e99597204e7d4bfa1de5bb09b8393951670",
+    "src-tauri/src/lib.rs": "7a52475ef349cc3d0b69a42a1f559e46265a479b028086ffef2e8d4b34e9df73",
+    "src-tauri/src/sync/auth.rs": "bc6827eba7dc7a39866945ca03bea41ef157a28ec99d3671ba4e21d4c3a0e6d9",
+    "src-tauri/src/sync/conflicts.rs": "d0041f1eaf2a81bca87f125c9642fb7d3e84a10c612190c21201412156667663",
+    "src-tauri/src/sync/engine.rs": "7fa189a4f3915edb5003e06247e51a27bf47ad20563e58109f9a8462787d2f11",
+    "src-tauri/src/sync/files.rs": "42ba94e00e83273f658355ce2798e43cc7537a6029d05d39b36679f643122af2",
+    "src-tauri/src/sync/groups.rs": "f3fc0cd688fc94e2509ffb4e79aab6b8f6e7433c662325648fb15afd99e5dd06",
+    "src-tauri/src/sync/mod.rs": "6b05685a14b32f0bcce33840533bec1409b3ed988fb49531f8591e14710ee6ee",
+    "src-tauri/src/sync/network.rs": "5b07533c9ad2c6a9898fa0131f56d9e618a9d334f95df96a606343e71c120b6a",
+    "src-tauri/src/sync/session.rs": "176bb0eb91af642a4e80a56f96c903d96977d5dee70d79e0730ed527bc474c30",
+    "src-tauri/src/sync/storage.rs": "03154ff36fb6f2fb6ada7e9a6748b498da8fcb1491374aab72203b0b13a19e2e",
+    "tools/file-exchange-harness/Cargo.lock": "33ba46cc34e8cf9631be3dd8d53bfb5c10c893d29abae2966e50b4a5b5a3841a",
+    "tools/file-exchange-harness/Cargo.toml": "67c8bbfe629d1497e2a9ba0898093df9f1579a2d0accde4bb79f0173b0379e5f",
+    "tools/file-exchange-harness/src/bin/bench.rs": "14ffbf2f9f72ef434d4e3e4859c942aa33b5bed58fb210f7bd6f3236b36e34cc",
+    "tools/file-exchange-harness/src/file_exchange.rs": "6ac7770ff2b0d2f72e36c8d1d99a337f6b482e2127a45ea7305b262e30008359",
+    "tools/file-exchange-harness/src/lib.rs": "52a80b95ccd99d4b245e6871afa2849a9a008cc4e827c2e3c01e54c5bbb8efc3",
+    "tools/file-exchange-harness/src/sync.rs": "3378f6f0db48b3db35f40039fb03b11bc7a27c4cdab92965305bb4870f6a0c18"
+  },
+  "androidApkSha256": {
+    "tenjee-vault-debug-aarch64.apk": "54d53b7f819068694cc060e3aab0ae559232db5c726209b7fbf025a060ecc5e3",
+    "tenjee-vault-debug-x86_64.apk": "0947060c19f1da810d44734289a843af60c3725f9398cc7d2c4099c88d826b89"
+  },
+  "provenanceNote": "Authentication relay test added after native builds and benchmark; changes since those runs are cfg(test)-only and documentation/evidence. Runtime sources and benchmark engine unchanged."
+}

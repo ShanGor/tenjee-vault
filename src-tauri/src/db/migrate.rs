@@ -141,6 +141,7 @@ impl DbKind {
                 Migration { version: 6, name: "dependency_groups", sql: include_str!("../../migrations/common/dependency_groups.sql") },
                 Migration { version: 7, name: "protected_titles", sql: include_str!("../../migrations/space/0007_protected_titles.sql") },
                 Migration { version: 8, name: "note_projections", sql: include_str!("../../migrations/space/0008_note_projections.sql") },
+                Migration { version: 9, name: "visible_protected_titles", sql: include_str!("../../migrations/space/0009_visible_protected_titles.sql") },
             ],
         }
     }

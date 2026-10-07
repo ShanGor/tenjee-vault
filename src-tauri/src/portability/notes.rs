@@ -81,8 +81,8 @@ fn import_file(
         .unwrap_or("导入页面")
         .to_owned();
     let encrypted=crate::notes::section_encrypted(conn,section_id)?;
-    let stored_title=crate::notes::protect_content(session,section_id,encrypted,&title)?;
-    let page = hierarchy::create_page_prepared(conn, section_id, None, &stored_title,encrypted)?;
+    if encrypted { session.with_dsk(section_id, |_| Ok(()))?; }
+    let page = hierarchy::create_page_prepared(conn, section_id, None, &title,false)?;
     let imported = (|| -> VaultResult<usize> {
         for (source, name, bytes) in &resources {
             let attachment = attachments::save_attachment(

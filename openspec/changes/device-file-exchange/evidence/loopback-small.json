@@ -1,0 +1,53 @@
+{
+  "recordedAt": "2026-10-06T05:08:48.811Z",
+  "dataset": "small",
+  "host": {
+    "platform": "linux",
+    "release": "7.0.0-34-generic",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "filesystemType": 16914836
+  },
+  "conditions": "Owned pseudorandom test data; both native peers on IPv4 loopback; no RTT/loss shaping; no GUI or Android provider. This does not establish LAN/VPN release acceptance.",
+  "baseline": null,
+  "exchange": {
+    "bytesPerFile": "4096",
+    "bytesPerSecond": 39073417.07045798,
+    "fileCount": 10000,
+    "generationSeconds": 0.041070229,
+    "incrementalRssBytes": 25128960,
+    "memoryScope": "Both peers in one process; excludes dataset generation/scan",
+    "mode": "files",
+    "peakRssBytes": 33861632,
+    "platform": "linux",
+    "processCpuSeconds": 1.697239344,
+    "recipient": {
+      "bytes": "40960000",
+      "confirmed": true,
+      "phasesSeconds": {
+        "approval": 0.000047135,
+        "exchanging": 0.3742705019999987,
+        "finished": 0.002279216,
+        "saving": 0.1113755360000001,
+        "verifying": 0.20308102699999958
+      }
+    },
+    "route": "IPv4 loopback, no shaping",
+    "rssBeforeBytes": 8732672,
+    "scanSeconds": 0.088666549,
+    "sender": {
+      "bytes": "40960000",
+      "confirmed": true,
+      "phasesSeconds": {
+        "approval": 0.002927204,
+        "exchanging": 0.690032714,
+        "finished": 0.002030003
+      }
+    },
+    "sessionSeconds": 1.048283029,
+    "storageDirectory": "/tmp",
+    "totalBytes": "40960000"
+  },
+  "relativeSessionThroughput": null,
+  "relativePayloadThroughput": null
+}

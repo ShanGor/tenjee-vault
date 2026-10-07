@@ -45,20 +45,42 @@ pub fn set_section_password_cmd(
     Ok(())
 }
 
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UnlockDuration {
+    #[default]
+    Page,
+    App,
+}
+
 #[tauri::command]
 pub fn unlock_section_cmd(
     state: State<'_, AppState>,
     space_id: String,
     section_id: String,
     password: String,
+    page_id: String,
+    duration: Option<UnlockDuration>,
 ) -> Result<(), VaultError> {
     let keys = state.inner.with_space(&space_id, |conn| {
+        let node = crate::notes::page_tree::metadata(conn, &page_id)?;
+        if node.page.section_id != section_id {
+            return Err(VaultError::Validation("Page does not belong to this protected domain".into()));
+        }
         sections_crypto::unlock_keys(conn, &section_id, &password)
     })?;
     state.inner.session.insert(&section_id, keys);
     if let Err(error)=state.inner.with_space(&space_id, |conn| crate::notes::migrate_titles(conn,&state.inner.session,&section_id)){state.inner.session.lock(&section_id);return Err(error);}
-    super::note_tasks::sync(&state.inner)?;
-    build_index(&state.inner, &space_id, &section_id)
+    let result = (|| {
+        super::note_tasks::sync(&state.inner)?;
+        build_index(&state.inner, &space_id, &section_id)
+    })();
+    if result.is_err() { state.inner.session.lock(&section_id); return result; }
+    state.inner.session.set_unlock_lifetime(&section_id, match duration.unwrap_or_default() {
+        UnlockDuration::Page => Some((&space_id, &page_id)),
+        UnlockDuration::App => None,
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -74,6 +96,28 @@ pub fn lock_section_cmd(
     })?;
     emit_locked(&app, &section_id);
     Ok(())
+}
+
+/// Navigation revokes temporary viewing grants and destroys their search indexes.
+#[tauri::command]
+pub fn protected_page_navigation_cmd(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    space_id: Option<String>,
+    page_id: Option<String>,
+) -> Result<Vec<String>, VaultError> {
+    let page = space_id.as_deref().zip(page_id.as_deref());
+    let locked = state.inner.session.lock_for_navigation(page);
+    {
+        let guard = state.inner.spaces()?;
+        for section_id in &locked {
+            for conn in guard.values() {
+                crate::search::drop_unlocked_index(conn, section_id)?;
+            }
+        }
+    }
+    for section_id in &locked { emit_locked(&app, section_id); }
+    Ok(locked)
 }
 
 #[tauri::command]
@@ -182,7 +226,7 @@ pub fn set_page_password_cmd(
 ) -> VaultResult<()> {
     crate::sync::session::before_protection(&app,&state.inner)?;
     state.inner.with_space(&space_id, |conn| {
-        crate::notes::page_tree::protect(
+        let domain = crate::notes::page_tree::protect(
             conn,
             &state.inner.files_dir(&space_id),
             &state.inner.session,
@@ -190,6 +234,7 @@ pub fn set_page_password_cmd(
             &password,
             confirm_irrecoverable,
         )?;
+        state.inner.session.set_unlock_lifetime(&domain, Some((&space_id, &page_id)));
         super::notes::rebuild_indexes(&state.inner, conn)
     })
 }

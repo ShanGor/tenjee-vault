@@ -101,6 +101,12 @@ store, or provide a recovery copy of that password. If it is forgotten, the encr
 cannot be recovered. Exporting an unlocked encrypted page is explicitly confirmed because the
 chosen output becomes plaintext.
 
+Page titles remain visible while protected content is locked. When unlocking, choose **until switching
+to another page** (default) or **until the app closes**. Switching pages also includes child pages,
+spaces, and other modules. Either choice can still be locked manually. Previously encrypted titles
+become visible after the next successful password unlock; content stays encrypted. Both devices
+must use the updated version to exchange workspaces.
+
 ## Import, export, and known limits
 
 Notes can import UTF-8 Markdown, HTML, and plain text; pages and page trees export to Markdown,
@@ -126,6 +132,11 @@ Device Exchange was enabled for release builds after the user reported successfu
 See [mobile and LAN exchange](docs/mobile-and-lan-sync.md)
 for the mobile layouts, pairing workflow, scope, conflict rules, and recovery behavior, and the
 [OpenSpec proposal](openspec/changes/mobile-and-lan-sync/proposal.md) for implementation planning.
+
+Development builds on Linux, Windows, and Android also include **Files & folders** for selected
+files, multiple files, and folders, with verified streaming and fresh-pairing resume. See
+[file exchange](docs/device-file-exchange.md) for the workflow and provider limits. File mode remains
+gated in release builds while physical-device and LAN/VPN acceptance is pending.
 
 Android development now has a native project and build commands. See
 [Android development](docs/android-development.md) for APK builds, device installation, and the

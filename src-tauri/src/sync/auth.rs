@@ -20,6 +20,12 @@ use std::time::Duration;
 use zeroize::Zeroizing;
 
 pub const PROTOCOL: &str = "tenjee-lan-v1-opaque-ristretto255-sha512-tls13-entities2";
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Protocol { #[default] Vault, Files }
+impl Protocol {
+    pub fn id(self) -> &'static str { match self { Self::Vault => PROTOCOL, Self::Files => "tenjee-file-v1-opaque-ristretto255-sha512-tls13" } }
+    fn exporter(self) -> &'static [u8] { match self { Self::Vault => b"EXPORTER-tenjee-pairing-v1", Self::Files => b"EXPORTER-tenjee-file-pairing-v1" } }
+}
 const MAX_AUTH_FRAME: usize = 2048;
 pub const MAX_FRAME: usize = 16 * 1024 * 1024;
 type Confirmation = Hmac<Sha256>;
@@ -156,27 +162,27 @@ fn identities() -> Identifiers<'static> {
     }
 }
 
-fn proof(key: &[u8], role: &[u8], transcript: &[u8]) -> Vec<u8> {
+fn proof(protocol: Protocol, key: &[u8], role: &[u8], transcript: &[u8]) -> Vec<u8> {
     let mut mac = Confirmation::new_from_slice(key).expect("HMAC accepts arbitrary key sizes");
-    mac.update(PROTOCOL.as_bytes());
+    mac.update(protocol.id().as_bytes());
     mac.update(role);
     mac.update(transcript);
     mac.finalize().into_bytes().to_vec()
 }
 
-fn verify(key: &[u8], role: &[u8], transcript: &[u8], received: &[u8]) -> VaultResult<()> {
+fn verify(protocol: Protocol, key: &[u8], role: &[u8], transcript: &[u8], received: &[u8]) -> VaultResult<()> {
     let mut mac = Confirmation::new_from_slice(key).map_err(|_| invalid("Pairing failed"))?;
-    mac.update(PROTOCOL.as_bytes());
+    mac.update(protocol.id().as_bytes());
     mac.update(role);
     mac.update(transcript);
     mac.verify_slice(received)
         .map_err(|_| invalid("Pairing failed: check the temporary code"))
 }
 
-fn transcript(session: &str, fingerprint: &str, exporter: &[u8], a: &[u8], b: &[u8]) -> Vec<u8> {
+fn transcript(protocol: Protocol, session: &str, fingerprint: &str, exporter: &[u8], a: &[u8], b: &[u8]) -> Vec<u8> {
     let mut transcript = Vec::new();
     for value in [
-        PROTOCOL.as_bytes(),
+        protocol.id().as_bytes(),
         session.as_bytes(),
         fingerprint.as_bytes(),
         exporter,
@@ -189,7 +195,8 @@ fn transcript(session: &str, fingerprint: &str, exporter: &[u8], a: &[u8], b: &[
     transcript
 }
 
-pub fn server(
+pub fn server_for(
+    protocol: Protocol,
     socket: TcpStream,
     identity: &ServerIdentity,
     session: &str,
@@ -212,7 +219,7 @@ pub fn server(
     let exporter = conn
         .export_keying_material(
             [0; 32],
-            b"EXPORTER-tenjee-pairing-v1",
+            protocol.exporter(),
             Some(session.as_bytes()),
         )
         .map_err(|_| invalid("TLS channel binding failed"))?;
@@ -220,11 +227,11 @@ pub fn server(
     send(
         &mut stream,
         &Greeting {
-            protocol: PROTOCOL.into(),
+            protocol: protocol.id().into(),
             session: session.into(),
         },
     )?;
-    let binding = transcript(session, &identity.fingerprint, &exporter, &[], &[]);
+    let binding = transcript(protocol, session, &identity.fingerprint, &exporter, &[], &[]);
     let mut rng = rand::rngs::OsRng;
     // The temporary verifier is created locally. Registration is never exposed
     // on the network and neither the password file nor setup is persisted.
@@ -281,6 +288,7 @@ pub fn server(
         .map_err(|_| invalid("Pairing failed"))?;
     let key = Zeroizing::new(result.session_key);
     let transcript = transcript(
+        protocol,
         session,
         &identity.fingerprint,
         &exporter,
@@ -288,17 +296,18 @@ pub fn server(
         &message,
     );
     let incoming: Proof = receive(&mut stream, MAX_AUTH_FRAME)?;
-    verify(&key, b"connector", &transcript, &incoming.proof)?;
+    verify(protocol, &key, b"connector", &transcript, &incoming.proof)?;
     send(
         &mut stream,
         &Proof {
-            proof: proof(&key, b"receiver", &transcript),
+            proof: proof(protocol, &key, b"receiver", &transcript),
         },
     )?;
     Ok(stream)
 }
 
-pub fn client(
+pub fn client_for(
+    protocol: Protocol,
     socket: TcpStream,
     code: &str,
 ) -> VaultResult<StreamOwned<ClientConnection, TcpStream>> {
@@ -331,18 +340,18 @@ pub fn client(
     );
     let mut stream = StreamOwned::new(conn, socket);
     let greeting: Greeting = receive(&mut stream, MAX_AUTH_FRAME)?;
-    if greeting.protocol != PROTOCOL || uuid::Uuid::parse_str(&greeting.session).is_err() {
-        return Err(invalid("Incompatible exchange protocol"));
+    if greeting.protocol != protocol.id() || uuid::Uuid::parse_str(&greeting.session).is_err() {
+        return Err(invalid("Incompatible exchange mode or protocol. Select the same mode on both devices and use compatible builds"));
     }
     let exporter = stream
         .conn
         .export_keying_material(
             [0; 32],
-            b"EXPORTER-tenjee-pairing-v1",
+            protocol.exporter(),
             Some(greeting.session.as_bytes()),
         )
         .map_err(|_| invalid("TLS channel binding failed"))?;
-    let binding = transcript(&greeting.session, &fingerprint, &exporter, &[], &[]);
+    let binding = transcript(protocol, &greeting.session, &fingerprint, &exporter, &[], &[]);
     let mut rng = rand::rngs::OsRng;
     let login = ClientLogin::<Suite>::start(&mut rng, code.as_bytes())
         .map_err(|_| invalid("Pairing failed"))?;
@@ -373,6 +382,7 @@ pub fn client(
     )?;
     let key = Zeroizing::new(result.session_key);
     let transcript = transcript(
+        protocol,
         &greeting.session,
         &fingerprint,
         &exporter,
@@ -382,12 +392,19 @@ pub fn client(
     send(
         &mut stream,
         &Proof {
-            proof: proof(&key, b"connector", &transcript),
+            proof: proof(protocol, &key, b"connector", &transcript),
         },
     )?;
     let incoming: Proof = receive(&mut stream, MAX_AUTH_FRAME)?;
-    verify(&key, b"receiver", &transcript, &incoming.proof)?;
+    verify(protocol, &key, b"receiver", &transcript, &incoming.proof)?;
     Ok(stream)
+}
+
+pub fn server(socket: TcpStream, identity: &ServerIdentity, session: &str, code: &str) -> VaultResult<StreamOwned<ServerConnection, TcpStream>> {
+    server_for(Protocol::Vault, socket, identity, session, code)
+}
+pub fn client(socket: TcpStream, code: &str) -> VaultResult<StreamOwned<ClientConnection, TcpStream>> {
+    client_for(Protocol::Vault, socket, code)
 }
 
 #[cfg(test)]
@@ -419,14 +436,82 @@ mod tests {
     #[test]
     fn confirmation_is_bound_to_roles_and_transcript() {
         let key = [7; 32];
-        let valid = proof(&key, b"connector", b"session-one");
-        assert!(verify(&key, b"connector", b"session-one", &valid).is_ok());
-        assert!(verify(&key, b"receiver", b"session-one", &valid).is_err());
-        assert!(verify(&key, b"connector", b"session-two", &valid).is_err());
+        let valid = proof(Protocol::Vault, &key, b"connector", b"session-one");
+        assert!(verify(Protocol::Vault, &key, b"connector", b"session-one", &valid).is_ok());
+        assert!(verify(Protocol::Vault, &key, b"receiver", b"session-one", &valid).is_err());
+        assert!(verify(Protocol::Vault, &key, b"connector", b"session-two", &valid).is_err());
     }
     #[test]
     fn oversized_frames_are_rejected_before_allocating_payload() {
         let bytes = ((MAX_AUTH_FRAME + 1) as u32).to_be_bytes();
         assert!(receive::<Greeting>(&mut &bytes[..], MAX_AUTH_FRAME).is_err());
     }
+    #[test]
+    fn file_protocol_isolated_from_legacy_vault_and_channel_confirmations() {
+        assert_eq!(Protocol::Vault.id(), "tenjee-lan-v1-opaque-ristretto255-sha512-tls13-entities2");
+        for (listener_mode,connector_mode,accept) in [(Protocol::Files,Protocol::Files,true),(Protocol::Files,Protocol::Vault,false),(Protocol::Vault,Protocol::Files,false)] {
+            let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();let address=listener.local_addr().unwrap();
+            let worker=std::thread::spawn(move||{let (socket,_)=listener.accept().unwrap();server_for(listener_mode,socket,&ServerIdentity::new().unwrap(),&uuid::Uuid::new_v4().to_string(),"01234567").is_ok()});
+            assert_eq!(client_for(connector_mode,TcpStream::connect(address).unwrap(),"01234567").is_ok(),accept);
+            assert_eq!(worker.join().unwrap(),accept);
+        }
+        let key=[7;32];let confirmation=proof(Protocol::Files,&key,b"connector",b"channel-one-session-one");
+        assert!(verify(Protocol::Vault,&key,b"connector",b"channel-one-session-one",&confirmation).is_err());
+        assert!(verify(Protocol::Files,&key,b"connector",b"channel-two-session-one",&confirmation).is_err());
+        assert!(verify(Protocol::Files,&key,b"connector",b"channel-one-session-two",&confirmation).is_err());
+        assert!(verify(Protocol::Files,&[8;32],b"connector",b"channel-one-session-one",&confirmation).is_err());
+    }
+
+    #[test]
+    fn pairing_relay_over_substituted_tls_channels_never_authorizes_content() {
+        for reuse_certificate in [false, true] {
+            let identity = ServerIdentity::new().unwrap();
+            // Reusing the certificate deliberately isolates exporter binding:
+            // even possession of this test certificate's key cannot authorize
+            // a relayed PAKE on a different TLS connection.
+            let relay_identity = if reuse_certificate { identity.clone() } else { ServerIdentity::new().unwrap() };
+            let upstream = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let upstream_address = upstream.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (socket, _) = upstream.accept().unwrap();
+                server_for(Protocol::Files, socket, &identity, &uuid::Uuid::new_v4().to_string(), "01234567").is_ok()
+            });
+            let downstream = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let downstream_address = downstream.local_addr().unwrap();
+            let relay = std::thread::spawn(move || {
+                let (mut socket, _) = downstream.accept().unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                socket.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut connection = ServerConnection::new(relay_identity.config).unwrap();
+                while connection.is_handshaking() { connection.complete_io(&mut socket).unwrap(); }
+                let mut client_side = StreamOwned::new(connection, socket);
+                let config = ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                    .with_protocol_versions(&[&rustls::version::TLS13]).unwrap()
+                    .dangerous().with_custom_certificate_verifier(Arc::new(ProvisionalVerifier)).with_no_client_auth();
+                let mut socket = TcpStream::connect(upstream_address).unwrap();
+                socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+                socket.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+                let mut connection = ClientConnection::new(Arc::new(config), ServerName::try_from("tenjee.local").unwrap()).unwrap();
+                while connection.is_handshaking() { connection.complete_io(&mut socket).unwrap(); }
+                let mut server_side = StreamOwned::new(connection, socket);
+                let greeting: Greeting = receive(&mut server_side, MAX_AUTH_FRAME).unwrap();
+                let upstream_exporter = server_side.conn.export_keying_material([0;32], Protocol::Files.exporter(), Some(greeting.session.as_bytes())).unwrap();
+                let downstream_exporter = client_side.conn.export_keying_material([0;32], Protocol::Files.exporter(), Some(greeting.session.as_bytes())).unwrap();
+                assert_ne!(upstream_exporter, downstream_exporter);
+                send(&mut client_side, &greeting).unwrap();
+                let request: PublicMessage = receive(&mut client_side, MAX_AUTH_FRAME).unwrap();
+                send(&mut server_side, &request).unwrap();
+                let response: PublicMessage = receive(&mut server_side, MAX_AUTH_FRAME).unwrap();
+                send(&mut client_side, &response).unwrap();
+                // The real connector rejects the relayed OPAQUE response and
+                // closes before finalization, confirmation, or any offer/body.
+                assert!(receive::<serde_json::Value>(&mut client_side, MAX_AUTH_FRAME).is_err());
+                drop(server_side);
+            });
+            assert!(client_for(Protocol::Files, TcpStream::connect(downstream_address).unwrap(), "01234567").is_err());
+            relay.join().unwrap();
+            assert!(!server.join().unwrap());
+        }
+    }
+
 }

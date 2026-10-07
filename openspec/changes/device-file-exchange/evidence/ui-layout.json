@@ -1,0 +1,19 @@
+{
+  "conditions": "Chrome emulated viewports; mocked bounded native metadata; real FileExchangePanel and application CSS",
+  "reports": [
+    {
+      "label": "phone",
+      "width": 390,
+      "scrollWidth": 390,
+      "overflow": false,
+      "approveVisible": true
+    },
+    {
+      "label": "desktop",
+      "width": 1280,
+      "scrollWidth": 1265,
+      "overflow": false,
+      "approveVisible": true
+    }
+  ]
+}

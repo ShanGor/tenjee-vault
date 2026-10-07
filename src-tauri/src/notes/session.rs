@@ -18,9 +18,17 @@ use crate::error::{VaultError, VaultResult};
 /// 默认闲置自动锁定时长（分钟）。
 pub const DEFAULT_AUTO_LOCK_MINUTES: u64 = 5;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UnlockLifetime {
+    Idle,
+    Page { space_id: String, page_id: String },
+    App,
+}
+
 struct UnlockedSection {
     keys: SectionKeys,
     last_activity: Instant,
+    lifetime: UnlockLifetime,
 }
 
 pub struct SessionManager {
@@ -62,8 +70,37 @@ impl SessionManager {
             UnlockedSection {
                 keys,
                 last_activity: Instant::now(),
+                lifetime: UnlockLifetime::Idle,
             },
         );
+    }
+
+    /// Password-based page unlocks use navigation or process exit, rather than idle time.
+    pub fn set_unlock_lifetime(&self, section_id: &str, page: Option<(&str, &str)>) {
+        if let Some(section) = self.inner.lock().unwrap().get_mut(section_id) {
+            section.lifetime = match page {
+                Some((space_id, page_id)) => UnlockLifetime::Page {
+                    space_id: space_id.into(), page_id: page_id.into(),
+                },
+                None => UnlockLifetime::App,
+            };
+        }
+    }
+
+    /// Remove page-scoped keys even when navigating to a sibling in the same domain.
+    pub fn lock_for_navigation(&self, page: Option<(&str, &str)>) -> Vec<String> {
+        let mut map = self.inner.lock().unwrap();
+        let mut locked = Vec::new();
+        map.retain(|id, section| {
+            let keep = match &section.lifetime {
+                UnlockLifetime::Page { space_id, page_id } =>
+                    page == Some((space_id.as_str(), page_id.as_str())),
+                _ => true,
+            };
+            if !keep { locked.push(id.clone()); }
+            keep
+        });
+        locked
     }
 
     /// 分区是否处于解锁状态。
@@ -105,7 +142,7 @@ impl SessionManager {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, s)| now.duration_since(s.last_activity) >= timeout)
+            .filter(|(_, s)| s.lifetime == UnlockLifetime::Idle && now.duration_since(s.last_activity) >= timeout)
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -223,6 +260,35 @@ mod tests {
             session.lock(&id);
         }
         assert!(!session.is_unlocked("sec1"));
+    }
+
+    #[test]
+    fn page_lifetime_locks_on_other_page_space_or_module_but_app_lifetime_survives() {
+        let session = SessionManager::new();
+        let w = wrapped();
+        session.unlock_with_password("page-domain", &w, "pw-123").unwrap();
+        session.set_unlock_lifetime("page-domain", Some(("space-a", "page-a")));
+        session.unlock_with_password("app-domain", &w, "pw-123").unwrap();
+        session.set_unlock_lifetime("app-domain", None);
+        {
+            let mut map = session.inner.lock().unwrap();
+            for section in map.values_mut() {
+                section.last_activity = Instant::now() - Duration::from_secs(600);
+            }
+        }
+        assert!(session.idle_section_ids().is_empty());
+        assert!(session.lock_for_navigation(Some(("space-a", "page-a"))).is_empty());
+        assert_eq!(session.lock_for_navigation(Some(("space-a", "page-b"))), vec!["page-domain"]);
+        assert!(session.with_dsk("page-domain", |_| Ok(())).is_err());
+        assert!(session.is_unlocked("app-domain"));
+        for destination in [Some(("space-b", "page-a")), None] {
+            session.unlock_with_password("page-domain", &w, "pw-123").unwrap();
+            session.set_unlock_lifetime("page-domain", Some(("space-a", "page-a")));
+            assert_eq!(session.lock_for_navigation(destination), vec!["page-domain"]);
+            assert!(session.is_unlocked("app-domain"));
+        }
+        session.lock_all();
+        assert!(session.with_dsk("app-domain", |_| Ok(())).is_err());
     }
 
     #[test]

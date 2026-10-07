@@ -196,10 +196,10 @@ fn migrate_pages(
             String::from_utf8(plain)
                 .map_err(|_| VaultError::Crypto("解密结果不是合法 UTF-8 文本".into()))?
         };
-        let title=if encrypt {base64_encode(&cipher::seal(title.as_bytes(),dsk)?)} else if flag {
+        let title=if flag {
             String::from_utf8(cipher::open(&base64_decode(&title)?,dsk)?).map_err(|_|VaultError::Crypto("Invalid title encoding".into()))?
         } else {title};
-        update.execute(params![new_stored, page_id,title,encrypt])?;
+        update.execute(params![new_stored, page_id,title,false])?;
     }
     Ok(())
 }
