@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { ActionMenu } from "../../shared/ActionMenu";
 import { ui } from "../../i18n/ui";
+import { EditorLinkDialog, removeEditorLink, selectedLink } from "./EditorLinkDialog";
 
 export function EditorToolbar({ editor, onPickAttachment, disabled }: {
   editor: Editor; onPickAttachment: () => void; disabled: boolean;
@@ -10,8 +11,18 @@ export function EditorToolbar({ editor, onPickAttachment, disabled }: {
   // Selection changes and undo/redo must update active and available actions.
   useEditorState({ editor, selector: ({ transactionNumber }) => transactionNumber });
   const [editingLink, setEditingLink] = useState(false);
-  const [href, setHref] = useState("");
-  const [linkError, setLinkError] = useState(false);
+  const link = selectedLink(editor);
+  useEffect(() => { if (disabled) setEditingLink(false); }, [disabled]);
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (!disabled && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault(); setEditingLink(true);
+      }
+    };
+    const element = editor.view.dom;
+    element.addEventListener("keydown", keyboard);
+    return () => element.removeEventListener("keydown", keyboard);
+  }, [editor, disabled]);
   const btn = "rounded border px-2 py-1 text-sm disabled:opacity-40";
   const chain = () => editor.chain().focus();
   const active = (name: string, attrs?: object) => editor.isActive(name, attrs);
@@ -26,7 +37,7 @@ export function EditorToolbar({ editor, onPickAttachment, disabled }: {
     ["切换表头行", "toggleHeaderRow"], ["切换表头列", "toggleHeaderColumn"], ["删除表格", "deleteTable"],
   ] as const;
 
-  return <div className="page-formatting-toolbar flex flex-wrap items-center gap-1 border-b" role="group" aria-label={ui("格式工具栏")}>
+  return <><div className="page-formatting-toolbar flex flex-wrap items-center gap-1 border-b" role="group" aria-label={ui("格式工具栏")}>
     <button type="button" className={btn} disabled={disabled || !editor.can().undo()} onClick={() => chain().undo().run()}>{ui("撤销")}</button>
     <button type="button" className={btn} disabled={disabled || !editor.can().redo()} onClick={() => chain().redo().run()}>{ui("重做")}</button>
     <select className={btn} aria-label={ui("段落格式")} disabled={disabled}
@@ -57,13 +68,16 @@ export function EditorToolbar({ editor, onPickAttachment, disabled }: {
     {toggle(ui("代码块"), "codeBlock", () => chain().toggleCodeBlock().run())}
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().insertContent({ type: "codeBlock", attrs: { language: "mermaid" }, content: [{ type: "text", text: "graph TD\n  A --> B" }] }).run()}>{ui("Mermaid 图表")}</button>
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().setHorizontalRule().run()}>{ui("分隔线")}</button>
-    {toggle(ui("链接"), "link", () => { setHref(editor.getAttributes("link").href ?? ""); setLinkError(false); setEditingLink(!editingLink); })}
+    <button type="button" className={btn} disabled={disabled} aria-label={ui(link ? "编辑链接" : "链接")} aria-pressed={!!link} aria-haspopup="dialog"
+      title={`${ui(link ? "编辑链接" : "插入链接")} (Ctrl/Cmd+K)`} onMouseDown={(event) => event.preventDefault()} onClick={() => setEditingLink(true)}>{ui("链接")}</button>
     {toggle(ui("• 列表"), "bulletList", () => chain().toggleBulletList().run())}
     {toggle(ui("1. 列表"), "orderedList", () => chain().toggleOrderedList().run())}
     {toggle(ui("☑ 待办"), "taskList", () => chain().toggleTaskList().run())}
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>{ui("表格")}</button>
-    <ActionMenu label={ui("表格操作")} trigger={ui("表格操作")}>
-      {tableActions.map(([label, command]) => <button type="button" key={command} disabled={disabled || !editor.can()[command]()}
+    <ActionMenu label={ui("表格操作")} trigger={<>{ui("表格操作")} <span aria-hidden="true">▾</span></>} disabled={disabled} preserveSelection className={`editor-table-menu ${active("table") ? "is-active" : ""}`}>
+      {!active("table") && <p className="editor-table-hint">{ui("将光标放入表格以操作行、列和单元格")}</p>}
+      {tableActions.map(([label, command], index) => <button type="button" key={command} disabled={disabled || !editor.can()[command]()}
+        className={`${[3, 6, 8, 10].includes(index) ? "editor-table-divider" : ""} ${command === "deleteTable" ? "editor-table-delete" : ""}`}
         onClick={() => chain()[command]().run()}>{ui(label)}</button>)}
     </ActionMenu>
     {active("table") && <>
@@ -73,17 +87,14 @@ export function EditorToolbar({ editor, onPickAttachment, disabled }: {
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().unsetAllMarks().clearNodes().run()}>{ui("清除格式")}</button>
     <button type="button" className={btn} disabled={disabled} onClick={() => chain().insertDrawingBlock().run()}>{ui("✏️ 绘图")}</button>
     <button type="button" className={btn} disabled={disabled} onClick={onPickAttachment}>{ui("📎 附件")}</button>
-    {editingLink && <form className="editor-link-form flex w-full flex-wrap items-center gap-2" onSubmit={(event) => {
-      event.preventDefault();
-      const url = href.trim();
-      const applied = url ? chain().extendMarkRange("link").setLink({ href: url }).run() : chain().extendMarkRange("link").unsetLink().run();
-      if (applied) setEditingLink(false); else setLinkError(true);
-    }}>
-      <input autoFocus className="min-w-0 flex-1 rounded border px-2 py-1 text-sm" aria-label={ui("链接地址")} placeholder="https://" value={href} disabled={disabled} onChange={(event) => { setHref(event.target.value); setLinkError(false); }} />
-      <button className={btn} disabled={disabled}>{ui("应用链接")}</button>
-      <button type="button" className={btn} disabled={disabled} onClick={() => { chain().extendMarkRange("link").unsetLink().run(); setEditingLink(false); }}>{ui("移除链接")}</button>
-      <button type="button" className={btn} onClick={() => setEditingLink(false)}>{ui("取消")}</button>
-      {linkError && <span role="alert" className="text-sm text-red-600">{ui("链接地址无效")}</span>}
-    </form>}
-  </div>;
+  </div>
+    {link && !disabled && <div className="editor-link-context" role="group" aria-label={ui("链接操作")}>
+      <span className="editor-link-address" title={link.href}>{link.href}</span>
+      <button type="button" aria-haspopup="dialog" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditingLink(true)}>{ui("编辑链接")}</button>
+      <button type="button" title={ui("保留文字，取消链接")} onMouseDown={(event) => event.preventDefault()} onClick={() => {
+        removeEditorLink(editor, link);
+      }}>{ui("取消链接")}</button>
+    </div>}
+    {editingLink && !disabled && <EditorLinkDialog editor={editor} onClose={() => setEditingLink(false)} />}
+  </>;
 }

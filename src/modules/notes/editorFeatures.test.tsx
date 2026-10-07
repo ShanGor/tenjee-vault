@@ -21,17 +21,170 @@ beforeEach(() => {
   root = createRoot(host);
   editor = new Editor({ extensions: buildEditorExtensions("space"), content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Hello" }] }] } });
 });
-afterEach(() => { act(() => root.unmount()); editor.destroy(); host.remove(); setUILocale("en"); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root.unmount()); editor.destroy(); host.remove(); setUILocale("en"); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function toolbar() {
   act(() => root.render(<><EditorToolbar editor={editor} onPickAttachment={() => undefined} disabled={false} /><EditorContent editor={editor} /></>));
 }
 function click(label: string) {
-  const button = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === label || button.getAttribute("aria-label") === label);
+  const button = Array.from(document.body.querySelectorAll("button")).find((button) => button.textContent === label || button.getAttribute("aria-label") === label);
   expect(button, label).toBeDefined();
   expect(button?.disabled, label).toBe(false);
   act(() => button!.click());
 }
+
+function field(label: string, value: string) {
+  const element = Array.from(document.querySelectorAll("label")).find((item) => item.textContent === label)!;
+  const input = document.getElementById(element.htmlFor) as HTMLInputElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  return input;
+}
+
+it("keeps table actions available and enables row/column operations when the cursor enters a table", () => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  toolbar();
+  click("表格操作");
+  expect(document.querySelector(".editor-table-hint")?.textContent).toContain("将光标放入表格");
+  expect(document.querySelector<HTMLButtonElement>('.floating-action-menu button')?.disabled).toBe(true);
+  click("表格操作");
+  act(() => editor.commands.insertTable({ rows: 3, cols: 3, withHeaderRow: true }));
+  expect(host.querySelector(".editor-table-menu.is-active")).not.toBeNull();
+  click("表格操作");
+  for (const label of ["插入列", "插入行", "删除表格"]) {
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>(".floating-action-menu button")).find((button) => button.textContent === label)?.disabled).toBe(false);
+  }
+  click("插入列");
+  expect(editor.state.doc.firstChild!.child(0).childCount).toBe(4);
+});
+
+it("preserves a multi-cell selection through the table menu and merges the selected cells", () => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  toolbar();
+  act(() => editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: false }));
+  const cells: number[] = [];
+  editor.state.doc.descendants((node, pos) => { if (node.type.name === "tableCell") cells.push(pos); });
+  act(() => editor.view.dispatch(editor.state.tr.setSelection(new CellSelection(editor.state.doc.resolve(cells[0]), editor.state.doc.resolve(cells[1])))));
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="表格操作"]')!;
+  const mouseDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  act(() => trigger.dispatchEvent(mouseDown));
+  expect(mouseDown.defaultPrevented).toBe(true);
+  click("表格操作"); click("合并单元格");
+  expect(editor.state.doc.firstChild!.child(0).childCount).toBe(1);
+  expect(editor.state.doc.firstChild!.child(0).firstChild!.attrs.colspan).toBe(2);
+});
+
+it("inserts a link at an empty cursor with display text and a normalized address", () => {
+  toolbar();
+  act(() => editor.commands.setTextSelection(6));
+  click("链接");
+  field("显示文字", "Example"); field("链接地址", "example.com");
+  click("插入链接");
+  expect(editor.getText()).toBe("HelloExample");
+  expect(editor.getHTML()).toContain('href="https://example.com"');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  // Text typed after saving should not inherit the newly inserted link.
+  act(() => editor.commands.insertContent(" next"));
+  expect(editor.getHTML()).toContain("Example</a> next");
+});
+
+it("uses selected text for a new link and inserts the address when display text is empty", () => {
+  toolbar();
+  act(() => editor.commands.setTextSelection({ from: 1, to: 6 }));
+  click("链接");
+  expect(document.querySelector<HTMLInputElement>('.editor-link-dialog input')?.value).toBe("Hello");
+  field("链接地址", "person@example.com"); click("插入链接");
+  expect(editor.getText()).toBe("Hello");
+  expect(editor.getHTML()).toContain('href="mailto:person@example.com"');
+  act(() => editor.commands.setContent("<p></p>"));
+  click("链接"); field("链接地址", "https://example.com"); click("插入链接");
+  expect(editor.getText()).toBe("https://example.com");
+  expect(editor.getHTML()).toContain('href="https://example.com"');
+});
+
+it("edits the whole existing link from a cursor inside it and supports undo/redo", () => {
+  toolbar();
+  act(() => { editor.commands.setContent('<p>Before <a href="https://old.example">Old label</a> after</p>'); editor.commands.setTextSelection(10); });
+  expect(host.querySelector(".editor-link-address")?.textContent).toBe("https://old.example");
+  click("编辑链接");
+  expect(document.querySelector<HTMLInputElement>('.editor-link-dialog input')?.value).toBe("Old label");
+  field("显示文字", "New label"); field("链接地址", "https://new.example"); click("保存");
+  expect(editor.getText()).toBe("Before New label after");
+  expect(editor.getHTML()).toContain('href="https://new.example"');
+  click("撤销");
+  expect(editor.getText()).toBe("Before Old label after");
+  expect(editor.getHTML()).toContain('href="https://old.example"');
+  click("重做");
+  expect(editor.getText()).toBe("Before New label after");
+});
+
+it("keeps mixed text formatting when updating only a link address", () => {
+  toolbar();
+  act(() => { editor.commands.setContent('<p><a href="https://old.example"><strong>Bold</strong> plain</a></p>'); editor.commands.setTextSelection(3); });
+  click("编辑链接"); field("链接地址", "https://new.example"); click("保存");
+  expect(editor.getText()).toBe("Bold plain");
+  const nodes = editor.getJSON().content![0].content!;
+  expect(nodes[0].marks?.find((mark) => mark.type === "bold")).toBeDefined();
+  expect(nodes[1].marks?.find((mark) => mark.type === "bold")).toBeUndefined();
+  for (const node of nodes) expect(node.marks?.find((mark) => mark.type === "link")?.attrs?.href).toBe("https://new.example");
+});
+
+it("unlinks a raw URL without deleting its text or immediately autolinking it again", () => {
+  toolbar();
+  act(() => { editor.commands.setContent('<p><a href="https://example.com">https://example.com</a></p>'); editor.commands.setTextSelection(5); });
+  const text = editor.getText();
+  const html = editor.getHTML();
+  const unlink = host.querySelector<HTMLButtonElement>('.editor-link-context button:last-child')!;
+  act(() => unlink.click());
+  expect(editor.getText()).toBe(text);
+  expect(editor.getHTML()).not.toContain("<a");
+  expect(host.querySelector(".editor-link-context")).toBeNull();
+  click("撤销"); expect(editor.getHTML()).toBe(html);
+  act(() => editor.commands.setTextSelection(5));
+  click("编辑链接"); click("取消链接");
+  expect(editor.getText()).toBe(text);
+  expect(editor.getHTML()).not.toContain("<a");
+});
+
+it("rejects unsafe and empty addresses without changing text or removing an existing link", () => {
+  toolbar();
+  act(() => { editor.commands.setContent('<p><a href="https://old.example">Old label</a></p>'); editor.commands.setTextSelection(3); });
+  const html = editor.getHTML();
+  click("编辑链接"); field("显示文字", "Changed"); field("链接地址", "javascript:alert(1)"); click("保存");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe("请输入有效的链接地址");
+  expect(editor.getHTML()).toBe(html);
+  field("链接地址", ""); click("保存");
+  expect(editor.getHTML()).toBe(html);
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+});
+
+it("opens link editing with Ctrl/Cmd+K, traps focus and restores the selection on Escape", () => {
+  toolbar();
+  act(() => editor.commands.setTextSelection({ from: 2, to: 5 }));
+  const html = editor.getHTML();
+  const key = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true });
+  act(() => editor.view.dom.dispatchEvent(key));
+  expect(key.defaultPrevented).toBe(true);
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  const first = document.querySelector<HTMLButtonElement>('.editor-link-dialog header button')!;
+  const last = document.querySelector<HTMLButtonElement>('.editor-link-dialog button[type="submit"]')!;
+  last.focus();
+  act(() => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(first);
+  field("显示文字", "Discarded");
+  act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(editor.getHTML()).toBe(html);
+  expect(editor.state.selection.from).toBe(2); expect(editor.state.selection.to).toBe(5);
+});
+
+it("disables table and link actions when editing is unavailable", () => {
+  act(() => root.render(<EditorToolbar editor={editor} onPickAttachment={() => undefined} disabled />));
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="表格操作"]')?.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('button[aria-label="链接"]')?.disabled).toBe(true);
+});
 
 it("applies quote and code from the toolbar, updates active state and supports undo/redo", () => {
   toolbar();

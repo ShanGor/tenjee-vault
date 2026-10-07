@@ -3,17 +3,22 @@ import { createPortal } from "react-dom";
 import { useMobileDismiss } from "./useMobileDismiss";
 
 /** Render outside scroll containers, then fit the popup to the visible screen. */
-export function ActionMenu({ label, children, className = "", trigger }: { label: string; children: ReactNode; className?: string; trigger?: ReactNode }) {
+export function ActionMenu({ label, children, className = "", trigger, disabled = false, preserveSelection = false }: {
+  label: string; children: ReactNode; className?: string; trigger?: ReactNode;
+  disabled?: boolean; preserveSelection?: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const visible = open && !disabled;
   const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const id = useId();
   const close = () => { setOpen(false); button.current?.focus({ preventScroll: true }); };
-  useMobileDismiss(close, open);
+  useMobileDismiss(close, visible);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!visible) return;
     const place = () => {
       if (!button.current || !panel.current) return;
       const viewport = window.visualViewport;
@@ -38,10 +43,10 @@ export function ActionMenu({ label, children, className = "", trigger }: { label
     window.visualViewport?.addEventListener("resize", place);
     window.visualViewport?.addEventListener("scroll", place);
     return () => { observer.disconnect(); window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); window.visualViewport?.removeEventListener("resize", place); window.visualViewport?.removeEventListener("scroll", place); };
-  }, [open, className]);
+  }, [visible, className]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!visible) return;
     const focusFrame = requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>("button:not(:disabled), input, select, a[href]")?.focus({ preventScroll: true }));
     const outside = (event: PointerEvent) => { if (!panel.current?.contains(event.target as Node) && !button.current?.contains(event.target as Node)) setOpen(false); };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); } };
@@ -50,10 +55,14 @@ export function ActionMenu({ label, children, className = "", trigger }: { label
     document.addEventListener("keydown", escape, true);
     document.addEventListener("focusin", focus);
     return () => { cancelAnimationFrame(focusFrame); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape, true); document.removeEventListener("focusin", focus); };
-  }, [open]);
+  }, [visible]);
 
   return <div className={`action-menu ${className}`}>
-    <button ref={button} type="button" className="action-menu-trigger" aria-label={label} aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { setPosition({ visibility: "hidden" }); setOpen(!open); }}>{trigger ?? "⋯"}</button>
-    {open && createPortal(<div ref={panel} id={id} className={`action-menu-panel floating-action-menu ${className.includes("calendar-more") ? "calendar-menu-panel" : ""}`} style={position} aria-label={label} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { if ((event.target as Element).closest("button, a[href]")) setOpen(false); }}>{children}</div>, document.body)}
+    <button ref={button} type="button" className="action-menu-trigger" disabled={disabled} aria-label={label} aria-expanded={visible} aria-controls={visible ? id : undefined}
+      onMouseDown={(event) => { if (preserveSelection) event.preventDefault(); }}
+      onClick={() => { setPosition({ visibility: "hidden" }); setOpen(!open); }}>{trigger ?? "⋯"}</button>
+    {visible && createPortal(<div ref={panel} id={id} className={`action-menu-panel floating-action-menu ${className.includes("calendar-more") ? "calendar-menu-panel" : ""}`} style={position} aria-label={label} onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => { if (preserveSelection && (event.target as Element).closest("button")) event.preventDefault(); }}
+      onClick={(event) => { if ((event.target as Element).closest("button:not(:disabled), a[href]")) setOpen(false); }}>{children}</div>, document.body)}
   </div>;
 }
