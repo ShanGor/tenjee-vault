@@ -99,7 +99,7 @@ pub fn export_section(
         session.with_dsk(section_id, |_| Ok(()))?;
     }
     let mut tree = hierarchy::page_tree(conn, section_id)?;
-    crate::notes::page_tree::hydrate_legacy(conn,session,&mut tree)?;
+    crate::notes::page_tree::hydrate_legacy(conn, session, &mut tree)?;
     export_tree(
         conn, files_dir, session, &tree, format, directory, name, overwrite,
     )
@@ -135,10 +135,9 @@ pub fn export_subtree(
         }
         None
     }
-    let mut tree=crate::notes::page_tree::tree(conn)?;
-    crate::notes::page_tree::hydrate(conn,session,&mut tree)?;
-    let root = find(tree, page_id)
-        .ok_or_else(|| VaultError::NotFound("Page".into()))?;
+    let mut tree = crate::notes::page_tree::tree(conn)?;
+    crate::notes::page_tree::hydrate(conn, session, &mut tree)?;
+    let root = find(tree, page_id).ok_or_else(|| VaultError::NotFound("Page".into()))?;
     for id in crate::notes::page_tree::descendants(conn, page_id)? {
         let live: bool =
             conn.query_row("SELECT is_deleted=0 FROM pages WHERE id=?1", [&id], |r| {
@@ -334,6 +333,7 @@ fn rewrite_page_links(
         .ok_or_else(|| VaultError::Validation("导出目标缺少父目录".into()))?;
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => rewrite_page_links(blocks, output, paths)?,
             Block::Paragraph { content } | Block::Heading { content, .. } => {
                 rewrite_inlines(content, from, paths)
             }
@@ -354,7 +354,10 @@ fn rewrite_page_links(
                     }
                 }
             }
-            Block::Image { .. } | Block::Attachment { .. } => {}
+            Block::Image { .. }
+            | Block::Attachment { .. }
+            | Block::CodeBlock { .. }
+            | Block::HorizontalRule => {}
         }
     }
     Ok(())
@@ -506,6 +509,7 @@ fn publish_resources(
 
 fn block_has_resource(block: &Block) -> bool {
     match block {
+        Block::Blockquote { blocks } => blocks.iter().any(block_has_resource),
         Block::Image { .. } | Block::Attachment { .. } => true,
         Block::List { items, .. } => items
             .iter()
@@ -532,6 +536,15 @@ fn rewrite_resources(
 ) -> VaultResult<()> {
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => rewrite_resources(
+                conn,
+                files_dir,
+                session,
+                blocks,
+                directory,
+                relative_dir,
+                resource_names,
+            )?,
             Block::Image { resource } | Block::Attachment { resource } => copy_resource(
                 conn,
                 files_dir,

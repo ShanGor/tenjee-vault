@@ -53,7 +53,7 @@ export function AttachmentImage(openAttachment: OpenAttachmentFn) {
     },
 
     parseHTML() {
-      return [{ tag: "img[data-attachment-id]" }];
+      return [{ tag: "img[data-attachment-id]" }, ...(this.parent?.() ?? [])];
     },
 
     addNodeView() {
@@ -62,6 +62,8 @@ export function AttachmentImage(openAttachment: OpenAttachmentFn) {
         dom.className = "attachment-image";
         const img = document.createElement("img");
         img.draggable = false;
+        img.alt = node.attrs.alt ?? "";
+        if (node.attrs.title) img.title = node.attrs.title;
         img.style.maxWidth = "100%";
         img.style.display = "block";
         if (node.attrs.width) img.style.width = node.attrs.width;
@@ -76,6 +78,8 @@ export function AttachmentImage(openAttachment: OpenAttachmentFn) {
             .catch(() => {
               localizeElement(img, "（图片不可读：附件缺失或分区已锁定）", "alt");
             });
+        } else if (node.attrs.src) {
+          img.src = node.attrs.src;
         }
 
         // 调整大小：右下角拖拽手柄
@@ -84,6 +88,7 @@ export function AttachmentImage(openAttachment: OpenAttachmentFn) {
         handle.contentEditable = "false";
         dom.appendChild(handle);
         handle.addEventListener("mousedown", (e) => {
+          if (!editor.isEditable) return;
           e.preventDefault();
           const startX = e.clientX;
           const startW = img.getBoundingClientRect().width;

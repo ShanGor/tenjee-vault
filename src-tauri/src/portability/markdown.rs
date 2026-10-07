@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path};
 
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use super::document::{
     Block, Inline, ListItem, PortableDocument, Resource, TableCell, TableRow, TaskItem, TextMark,
@@ -76,6 +76,35 @@ fn parse_blocks<'a>(
             }
             Event::Start(Tag::Paragraph) => {
                 *cursor += 1;
+                if let Some(Event::Start(Tag::Image {
+                    dest_url, title, ..
+                })) = events.get(*cursor)
+                {
+                    let image_end = events[*cursor..]
+                        .iter()
+                        .position(|event| matches!(event, Event::End(TagEnd::Image)));
+                    if image_end.is_some_and(|offset| {
+                        matches!(
+                            events.get(*cursor + offset + 1),
+                            Some(Event::End(TagEnd::Paragraph))
+                        )
+                    }) {
+                        let source = dest_url.to_string();
+                        let title = (!title.is_empty()).then(|| title.to_string());
+                        *cursor += 1;
+                        let alt = inline_text(events, cursor, TagEnd::Image);
+                        *cursor += 1;
+                        blocks.push(Block::Image {
+                            resource: Resource {
+                                source,
+                                title,
+                                alt: (!alt.is_empty()).then_some(alt),
+                                ..Resource::default()
+                            },
+                        });
+                        continue;
+                    }
+                }
                 blocks.push(Block::Paragraph {
                     content: parse_inlines(events, cursor, TagEnd::Paragraph, Vec::new())?,
                 });
@@ -118,6 +147,39 @@ fn parse_blocks<'a>(
                     });
                 }
             }
+            Event::Start(Tag::BlockQuote(kind)) => {
+                let end = TagEnd::BlockQuote(*kind);
+                *cursor += 1;
+                blocks.push(Block::Blockquote {
+                    blocks: parse_blocks(events, cursor, Some(end))?,
+                });
+            }
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let language = match kind {
+                    CodeBlockKind::Fenced(info) => {
+                        info.split_whitespace().next().map(str::to_owned)
+                    }
+                    CodeBlockKind::Indented => None,
+                };
+                *cursor += 1;
+                let mut text = String::new();
+                while *cursor < events.len() {
+                    match &events[*cursor] {
+                        Event::End(TagEnd::CodeBlock) => {
+                            *cursor += 1;
+                            break;
+                        }
+                        Event::Text(value) => text.push_str(value),
+                        _ => {}
+                    }
+                    *cursor += 1;
+                }
+                // Fences contribute one delimiter newline, separate from code content.
+                if text.ends_with('\n') {
+                    text.pop();
+                }
+                blocks.push(Block::CodeBlock { language, text });
+            }
             Event::Start(Tag::Table(_)) => {
                 *cursor += 1;
                 blocks.push(Block::Table {
@@ -141,7 +203,7 @@ fn parse_blocks<'a>(
                 });
             }
             Event::Rule => {
-                blocks.push(Block::Paragraph { content: vec![] });
+                blocks.push(Block::HorizontalRule);
                 *cursor += 1;
             }
             Event::Text(text) | Event::Code(text) => {
@@ -154,13 +216,13 @@ fn parse_blocks<'a>(
                 *cursor += 1;
             }
             Event::Html(html) | Event::InlineHtml(html) => {
-                blocks.push(Block::Paragraph {
-                    content: vec![Inline::Text {
-                        text: html.to_string(),
-                        marks: vec![],
-                    }],
-                });
+                let mut source = html.to_string();
                 *cursor += 1;
+                while let Some(Event::Html(value)) = events.get(*cursor) {
+                    source.push_str(value);
+                    *cursor += 1;
+                }
+                blocks.extend(super::html::parse(&source)?.blocks);
             }
             Event::End(_) => {
                 *cursor += 1;
@@ -204,27 +266,24 @@ fn parse_list<'a>(
 
 fn parse_table<'a>(events: &[Event<'a>], cursor: &mut usize) -> VaultResult<Vec<TableRow>> {
     let mut rows = Vec::new();
-    let mut header = false;
     while *cursor < events.len() {
         match &events[*cursor] {
             Event::End(TagEnd::Table) => {
                 *cursor += 1;
                 break;
             }
-            Event::Start(Tag::TableHead) => {
-                header = true;
-                *cursor += 1;
-            }
-            Event::End(TagEnd::TableHead) => {
-                header = false;
-                *cursor += 1;
-            }
-            Event::Start(Tag::TableRow) => {
+            Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
+                let header = matches!(&events[*cursor], Event::Start(Tag::TableHead));
+                let end = if header {
+                    TagEnd::TableHead
+                } else {
+                    TagEnd::TableRow
+                };
                 *cursor += 1;
                 let mut cells = Vec::new();
                 while *cursor < events.len() {
                     match &events[*cursor] {
-                        Event::End(TagEnd::TableRow) => {
+                        Event::End(tag) if *tag == end => {
                             *cursor += 1;
                             break;
                         }
@@ -235,6 +294,7 @@ fn parse_table<'a>(events: &[Event<'a>], cursor: &mut usize) -> VaultResult<Vec<
                             cells.push(TableCell {
                                 header,
                                 blocks: vec![Block::Paragraph { content }],
+                                ..TableCell::default()
                             });
                         }
                         _ => *cursor += 1,
@@ -360,6 +420,28 @@ fn inline_text<'a>(events: &[Event<'a>], cursor: &mut usize, stop: TagEnd) -> St
 fn render_blocks(blocks: &[Block], out: &mut String, depth: usize) {
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => {
+                let mut quote = String::new();
+                render_blocks(blocks, &mut quote, depth);
+                for line in quote.trim_end().lines() {
+                    out.push_str("> ");
+                    out.push_str(line);
+                    out.push('\n');
+                }
+                out.push('\n');
+            }
+            Block::CodeBlock { language, text } => {
+                let longest = text.split(|ch| ch != '`').map(str::len).max().unwrap_or(0);
+                let fence = "`".repeat(longest.max(2) + 1);
+                out.push_str(&fence);
+                out.push_str(language.as_deref().unwrap_or(""));
+                out.push('\n');
+                out.push_str(text);
+                out.push('\n');
+                out.push_str(&fence);
+                out.push_str("\n\n");
+            }
+            Block::HorizontalRule => out.push_str("---\n\n"),
             Block::Paragraph { content } => {
                 render_inlines(content, out);
                 out.push_str("\n\n");
@@ -438,7 +520,16 @@ fn render_blocks_inline(blocks: &[Block], out: &mut String) {
                     render_blocks_inline(&item.blocks, out);
                 }
             }
-            _ => {}
+            other => {
+                let mut nested = String::new();
+                render_blocks(std::slice::from_ref(other), &mut nested, 1);
+                out.push('\n');
+                for line in nested.trim_end().lines() {
+                    out.push_str("  ");
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
         }
     }
 }
@@ -478,6 +569,22 @@ fn render_table(rows: &[TableRow], out: &mut String) {
     if rows.is_empty() {
         return;
     }
+    if rows.iter().enumerate().any(|(index, row)| {
+        row.cells.iter().any(|cell| {
+            cell.colspan > 1
+                || cell.rowspan > 1
+                || cell.header != (index == 0)
+                || !matches!(cell.blocks.as_slice(), [Block::Paragraph { .. }])
+        })
+    }) {
+        out.push_str(&super::html::render(&PortableDocument {
+            blocks: vec![Block::Table {
+                rows: rows.to_vec(),
+            }],
+        }));
+        out.push_str("\n\n");
+        return;
+    }
     for (row_index, row) in rows.iter().enumerate() {
         out.push('|');
         for cell in &row.cells {
@@ -500,6 +607,7 @@ fn render_table(rows: &[TableRow], out: &mut String) {
 fn collect_blocks(blocks: &[Block], into: &mut Vec<ResourceReference>) {
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => collect_blocks(blocks, into),
             Block::Image { resource } => collect_resource(resource, true, into),
             Block::Attachment { resource } => collect_resource(resource, false, into),
             Block::List { items, .. } => {
@@ -598,6 +706,57 @@ pub fn checked_relative_path(path: &str) -> VaultResult<&Path> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editor_blocks_and_html_merged_tables_survive_import_export() {
+        let input = serde_json::json!({"type":"doc","content":[
+            {"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"Quoted"}]}]},
+            {"type":"codeBlock","attrs":{"language":"markdown"},"content":[{"type":"text","text":"```js\nconst n = 1;\n```\n"}]},
+            {"type":"horizontalRule"},
+            {"type":"table","content":[
+                {"type":"tableRow","content":[
+                    {"type":"tableHeader","attrs":{"rowspan":2},"content":[{"type":"paragraph","content":[{"type":"text","text":"A & B","marks":[{"type":"bold"}]}]}]},
+                    {"type":"tableCell","attrs":{"colspan":2},"content":[{"type":"paragraph","content":[{"type":"text","text":"First"}]},{"type":"paragraph","content":[{"type":"text","text":"Second"}]}]}
+                ]},
+                {"type":"tableRow","content":[
+                    {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"C"}]}]},
+                    {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"D"}]}]}
+                ]}
+            ]}
+        ]});
+        let document = PortableDocument::from_tiptap_json(&input).unwrap();
+        let source = render(&document);
+        assert!(source.contains("> Quoted"));
+        assert!(source.contains("````markdown"));
+        assert!(source.contains("<table>"));
+        assert!(source.contains("rowspan=\"2\""));
+        assert!(source.contains("colspan=\"2\""));
+        assert_eq!(parse(&source).unwrap(), document);
+        let html = super::super::html::render(&document);
+        assert_eq!(super::super::html::parse(&html).unwrap(), document);
+        assert_eq!(
+            PortableDocument::from_tiptap_json(&document.to_tiptap_json()).unwrap(),
+            document
+        );
+    }
+
+    #[test]
+    fn ordinary_tables_stay_gfm_and_headerless_tables_use_html() {
+        let ordinary = parse("| A | B |\n| --- | --- |\n| C | D |\n").unwrap();
+        assert!(render(&ordinary).starts_with("| A | B |"));
+        let headerless =
+            parse("<table><tr><td><strong>A</strong></td><td>B</td></tr></table>").unwrap();
+        let source = render(&headerless);
+        assert!(source.starts_with("<table>"));
+        assert!(source.contains("<strong>A</strong>"));
+        assert_eq!(parse(&source).unwrap(), headerless);
+    }
+
+    #[test]
+    fn resources_inside_quotes_are_still_collected() {
+        let document = parse("> ![photo](photo.png)\n").unwrap();
+        assert_eq!(collect_resources(&document).len(), 1);
+    }
 
     #[test]
     fn markdown_round_trip_keeps_supported_structure() {

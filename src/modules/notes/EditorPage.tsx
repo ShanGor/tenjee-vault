@@ -5,19 +5,12 @@ import { ui, uiError } from "../../i18n/ui";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import { Markdown } from "@tiptap/markdown";
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import { buildEditorExtensions } from "./editorExtensions";
 import { createMarkdownMode } from "./markdownMode";
-import TaskList from "@tiptap/extension-task-list";
-import { LinkedTaskItem } from "./LinkedTaskItem";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { TableHeader } from "@tiptap/extension-table-header";
-import Placeholder from "@tiptap/extension-placeholder";
-import Highlight from "@tiptap/extension-highlight";
-import { TextStyle, Color, FontSize } from "@tiptap/extension-text-style";
+import { EditorToolbar } from "./EditorToolbar";
+import { MarkdownEditor } from "./MarkdownEditor";
+import type { JSONContent } from "@tiptap/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save, finishExport, finishTreeExport, releaseFiles } from "../../shared/nativeFiles";
 
@@ -25,38 +18,11 @@ import { api, BatchResult, ImportedPage, LockedError, NoteExportFormat, Page, Pa
 import { registerPageSave, flushPageSave } from "./pageSave";
 import { findPage, pagePath } from "./pageTree";
 import { useNotesStore } from "./store";
-import { AttachmentBlock, AttachmentImage, DrawingBlock, PageLink } from "./extensions";
 import { UnlockDialog } from "./dialogs";
 
 import { TagSelector } from "../../shared/Tags";
 import { SaveTemplateButton } from "./Templates";
 import { NoteTasks } from "./NoteTasks";
-
-function buildEditorExtensions(spaceId: string) {
-  return [
-    StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-    Markdown,
-    TaskList,
-    LinkedTaskItem.configure({ nested: true }),
-    Table.configure({ resizable: false }),
-    TableRow,
-    TableHeader,
-    TableCell,
-    Placeholder.configure({ placeholder: () => ui("开始书写…（输入 [[ 插入页面链接）") }),
-    Highlight,
-    TextStyle,
-    Color,
-    FontSize,
-    PageLink,
-    DrawingBlock,
-    AttachmentBlock({
-      openAttachment: (id) => api.openAttachment(spaceId, id),
-      deleteAttachment: (id) => api.deleteAttachment(spaceId, id),
-    }),
-    // 图片渲染时经后端取附件字节（spec 5.3：文档内只存引用节点）
-    AttachmentImage((id) => api.openAttachment(spaceId, id)),
-  ];
-}
 
 export default function EditorPage() {
   const { spaceId = "", pageId = "" } = useParams();
@@ -74,6 +40,7 @@ export default function EditorPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editorMode, setEditorMode] = useState<"rich" | "markdown">("rich");
   const [markdownSource, setMarkdownSource] = useState("");
+  const [showMarkdownPreview, setShowMarkdownPreview] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [showVersions, setShowVersions] = useState(false);
@@ -83,6 +50,8 @@ export default function EditorPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clipboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSave = useRef(true);
+  const activePage = useRef(pageId);
+  activePage.current = pageId;
 
   const sectionLocked = node ? isSectionLocked({ id: node.section_id, is_encrypted: node.is_encrypted }) : false;
   const encryptedSection = node?.is_encrypted ?? false;
@@ -242,6 +211,23 @@ export default function EditorPage() {
           .run();
       }
     }
+  }
+
+  async function uploadMarkdownFiles(files: File[], insert: (source: string) => void) {
+    if (!editor?.isEditable || !markdownMode) return;
+    const uploadPage = pageId;
+    try {
+      const content: JSONContent[] = [];
+      for (const file of files) {
+        const attachment = await api.saveAttachment(spaceId, sectionId, pageId, file.name || "pasted", file.type || null,
+          bytesToBase64(new Uint8Array(await file.arrayBuffer())));
+        if (!editor.isEditable || editor.isDestroyed || activePage.current !== uploadPage) return;
+        content.push(file.type.startsWith("image/")
+          ? { type: "image", attrs: { src: `attachment://${attachment.id}`, attachmentId: attachment.id, alt: file.name } }
+          : { type: "attachmentBlock", attrs: { attachmentId: attachment.id, fileName: attachment.file_name, size: attachment.size } });
+      }
+      insert(markdownMode.serializeFragment({ type: "doc", content }));
+    } catch (error) { setPortableStatus(ui("附件上传失败：{p0}", { p0: uiError(error) })); }
   }
 
   // 剪贴板自动清空（仅加密分区页面且设置开启）
@@ -487,11 +473,12 @@ export default function EditorPage() {
       {isEditing && <div className="page-mode-switch flex items-center gap-2 border-b px-4 py-2" role="group" aria-label={ui("编辑模式")}>
         <button className="rounded border px-3 py-1 text-sm" aria-pressed={editorMode === "rich"} disabled={isSaving} onClick={() => changeEditorMode("rich")}>{ui("富文本")}</button>
         <button className="rounded border px-3 py-1 text-sm" aria-pressed={editorMode === "markdown"} disabled={isSaving} onClick={() => changeEditorMode("markdown")}>Markdown</button>
+        {editorMode === "markdown" && <button className="rounded border px-3 py-1 text-sm" aria-pressed={showMarkdownPreview} onClick={() => setShowMarkdownPreview(!showMarkdownPreview)}>{ui("预览")}</button>}
       </div>}
       {isEditing && <details className="document-metadata" inert={isSaving}><summary>{ui("标签与页面工具")}</summary>
-      {!sectionLocked && <TagSelector key={pageId} kind="page" id={pageId} spaceId={spaceId} />}
-      {!sectionLocked && <SaveTemplateButton key={pageId} spaceId={spaceId} pageId={pageId} encrypted={!!encryptedSection} beforeSave={() => api.savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()))} />}
-      {!sectionLocked && editorMode === "rich" && <NoteTasks key={pageId} editor={editor} spaceId={spaceId} pageId={pageId} beforeSave={async () => {
+      {!sectionLocked && <TagSelector key={`tags-${pageId}`} kind="page" id={pageId} spaceId={spaceId} />}
+      {!sectionLocked && <SaveTemplateButton key={`template-${pageId}`} spaceId={spaceId} pageId={pageId} encrypted={!!encryptedSection} beforeSave={() => api.savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()))} />}
+      {!sectionLocked && editorMode === "rich" && <NoteTasks key={`tasks-${pageId}`} editor={editor} spaceId={spaceId} pageId={pageId} beforeSave={async () => {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         await api.savePage(spaceId, pageId, title, JSON.stringify(editor.getJSON()));
       }} refreshPage={async () => setPage(await api.getPage(spaceId, pageId))} />}
@@ -499,10 +486,10 @@ export default function EditorPage() {
 
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1 overflow-y-auto" data-print-document inert={isSaving}>
-          {isEditing && editorMode === "rich" && <Toolbar editor={editor} onPickAttachment={pickAttachmentFile} disabled={sectionLocked || isSaving} />}
-          {isEditing && editorMode === "markdown" && <div className="page-document-content page-markdown-content">
-            <p className="mb-3 text-xs text-neutral-500">{ui("附件、绘图和特殊格式以引用保留；保留引用即可保留原内容。")}</p>
-            <textarea className="markdown-source" aria-label={ui("Markdown 源码")} value={markdownSource} onChange={(event) => updateMarkdown(event.target.value)} onPaste={scheduleClipboardClear} spellCheck={false} />
+          {isEditing && editorMode === "rich" && <EditorToolbar editor={editor} onPickAttachment={pickAttachmentFile} disabled={sectionLocked || isSaving} />}
+          {isEditing && editorMode === "markdown" && <div className={`markdown-workspace ${showMarkdownPreview ? "with-preview" : ""}`}>
+            <div className="markdown-source-pane"><MarkdownEditor value={markdownSource} onChange={updateMarkdown} onFiles={uploadMarkdownFiles} onPasteText={scheduleClipboardClear} disabled={sectionLocked || isSaving} /></div>
+            {showMarkdownPreview && <MarkdownPreview spaceId={spaceId} sourceEditor={editor} />}
           </div>}
           <div hidden={isEditing && editorMode === "markdown"} className="page-rich-content"><EditorContent editor={editor} className="page-document-content" /></div>
 
@@ -535,6 +522,18 @@ export default function EditorPage() {
 
 function hasProtectedChildren(node: import("./api").SpacePageNode | null): boolean {
   return !!node && (node.is_encrypted || node.children.some(hasProtectedChildren));
+}
+
+function MarkdownPreview({ spaceId, sourceEditor }: { spaceId: string; sourceEditor: import("@tiptap/core").Editor }) {
+  const content = useEditorState({ editor: sourceEditor, selector: ({ editor }) => editor.getJSON() });
+  const preview = useEditor({ editable: false, extensions: buildEditorExtensions(spaceId), content,
+    editorProps: { attributes: { class: "prose-editor" } },
+  });
+  useEffect(() => { preview?.commands.setContent(content, { emitUpdate: false }); }, [preview, content]);
+  return <section className="markdown-preview-pane" aria-label={ui("Markdown 预览")}>
+    <div className="markdown-preview-heading">{ui("预览")}</div>
+    <EditorContent editor={preview} className="page-document-content" />
+  </section>;
 }
 
 function splitExportPath(path: string): { directory: string; filename: string } | null {
@@ -619,92 +618,4 @@ function VersionPreview({ content }: { content: string }) {
     text = content.slice(0, 120);
   }
   return <p className="line-clamp-3 text-neutral-600 dark:text-neutral-300">{text || ui("（空）")}</p>;
-}
-
-/** 格式工具栏（spec 5.2）。 */
-function Toolbar({
-  editor,
-  onPickAttachment,
-  disabled,
-}: {
-  editor: any;
-  onPickAttachment: () => void;
-  disabled: boolean;
-}) {
-  const btn = "rounded border px-2 py-1 text-sm disabled:opacity-40";
-  const active = (name: string, attrs?: object) => editor?.isActive(name, attrs);
-  const cls = (name: string, attrs?: object) => `${btn} ${active(name, attrs) ? "bg-blue-100 dark:bg-blue-900" : ""}`;
-  const chain = () => editor?.chain().focus();
-
-  return (
-    <div className="page-formatting-toolbar flex flex-wrap items-center gap-1 border-b">
-      <select
-        className={btn}
-        disabled={disabled}
-        value={
-          active("heading", { level: 1 }) ? "1" : active("heading", { level: 2 }) ? "2" : active("heading", { level: 3 }) ? "3" : "0"
-        }
-        onChange={(e) => {
-          const v = e.target.value;
-          if (v === "0") chain().setParagraph().run();
-          else chain().setHeading({ level: Number(v) as 1 | 2 | 3 }).run();
-        }}
-      >
-        <option value="0">{ui("正文")}</option>
-        <option value="1">{ui("标题 1")}</option>
-        <option value="2">{ui("标题 2")}</option>
-        <option value="3">{ui("标题 3")}</option>
-      </select>
-      <button className={cls("bold")} disabled={disabled} onClick={() => chain().toggleBold().run()}>
-        <b>B</b>
-      </button>
-      <button className={cls("italic")} disabled={disabled} onClick={() => chain().toggleItalic().run()}>
-        <i>I</i>
-      </button>
-      <button className={cls("underline")} disabled={disabled} onClick={() => chain().toggleUnderline().run()}>
-        <u>U</u>
-      </button>
-      <button className={cls("strike")} disabled={disabled} onClick={() => chain().toggleStrike().run()}>
-        <s>S</s>
-      </button>
-      <button className={cls("highlight")} disabled={disabled} onClick={() => chain().toggleHighlight().run()}>{ui("高亮")}</button>
-      <label className={`${btn} flex items-center gap-1`} title={ui("字体颜色")}>
-        <span>A</span>
-        <input
-          type="color"
-          className="h-4 w-6"
-          disabled={disabled}
-          onChange={(e) => chain().setColor(e.target.value).run()}
-        />
-      </label>
-      <select
-        className={btn}
-        disabled={disabled}
-        defaultValue=""
-        onChange={(e) => {
-          if (e.target.value) chain().setFontSize(e.target.value).run();
-        }}
-      >
-        <option value="">{ui("字号")}</option>
-        {["12px", "14px", "16px", "18px", "22px", "28px"].map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-      <button className={cls("bulletList")} disabled={disabled} onClick={() => chain().toggleBulletList().run()}>{ui("• 列表")}</button>
-      <button className={cls("orderedList")} disabled={disabled} onClick={() => chain().toggleOrderedList().run()}>{ui("1. 列表")}</button>
-      <button className={cls("taskList")} disabled={disabled} onClick={() => chain().toggleTaskList().run()}>{ui("☑ 待办")}</button>
-      <button
-        className={btn}
-        disabled={disabled}
-        onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
-      >{ui("表格")}</button>
-      <button className={btn} disabled={disabled} onClick={() => chain().addColumnAfter().run()} title={ui("插入列")}>{ui("+列")}</button>
-      <button className={btn} disabled={disabled} onClick={() => chain().addRowAfter().run()} title={ui("插入行")}>{ui("+行")}</button>
-      <button className={btn} disabled={disabled} onClick={() => chain().deleteTable().run()} title={ui("删除表格")}>{ui("删表格")}</button>
-      <button className={btn} disabled={disabled} onClick={() => chain().insertDrawingBlock().run()}>{ui("✏️ 绘图")}</button>
-      <button className={btn} disabled={disabled} onClick={onPickAttachment}>{ui("📎 附件")}</button>
-    </div>
-  );
 }

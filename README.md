@@ -109,6 +109,16 @@ must use the updated version to exchange workspaces.
 
 ## Import, export, and known limits
 
+The page editor provides headings 1–6, quotes, inline and fenced code, links, lists,
+checklists, horizontal rules, undo/redo, and table row/column insertion and deletion,
+cell merging/splitting, and header toggles. Markdown mode includes formatting buttons,
+a live preview, and image upload, paste, and drop at the cursor. Code blocks support
+language selection, syntax highlighting, copying, and Mermaid diagram previews.
+Merged or headerless tables and tables with block content use editable HTML in
+Markdown mode, preserving `colspan`, `rowspan`, headers, and cell contents.
+Attachments, drawings, linked tasks, and special text styles remain references
+so switching modes preserves their data.
+
 Notes can import UTF-8 Markdown, HTML, and plain text; pages and page trees export to Markdown,
 HTML, or PDF and can use the print view. Calendar import/export uses UTF-8 iCalendar (`.ics`);
 see [the iCalendar guide](docs/calendar-ical.md) for recurrence and timezone details.

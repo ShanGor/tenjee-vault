@@ -88,6 +88,18 @@ impl Canvas<'_> {
     }
     fn block(&mut self, block: &Block, depth: usize) -> VaultResult<()> {
         match block {
+            Block::Blockquote { blocks } => {
+                self.text(&blocks_text(blocks), BODY_SIZE, (depth + 1) as f32 * 7.0);
+                self.advance(2.0);
+            }
+            Block::CodeBlock { text, .. } => {
+                self.text(text, BODY_SIZE, depth as f32 * 7.0);
+                self.advance(2.0);
+            }
+            Block::HorizontalRule => {
+                self.text("──────────", BODY_SIZE, 0.0);
+                self.advance(2.0);
+            }
             Block::Paragraph { content } => {
                 self.text(&inline_text(content), BODY_SIZE, 0.0);
                 self.advance(2.0);
@@ -204,6 +216,9 @@ fn blocks_text(blocks: &[Block]) -> String {
     blocks
         .iter()
         .map(|block| match block {
+            Block::Blockquote { blocks } => blocks_text(blocks),
+            Block::CodeBlock { text, .. } => text.clone(),
+            Block::HorizontalRule => String::new(),
             Block::Paragraph { content } | Block::Heading { content, .. } => inline_text(content),
             Block::List { items, .. } => items
                 .iter()
@@ -295,6 +310,7 @@ mod tests {
                                     marks: vec![],
                                 }],
                             }],
+                            ..TableCell::default()
                         }],
                     }],
                 },

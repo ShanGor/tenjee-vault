@@ -16,13 +16,37 @@ pub struct PortableDocument {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Block {
-    Paragraph { content: Vec<Inline> },
-    Heading { level: u8, content: Vec<Inline> },
-    List { ordered: bool, items: Vec<ListItem> },
-    TaskList { items: Vec<TaskItem> },
-    Table { rows: Vec<TableRow> },
-    Image { resource: Resource },
-    Attachment { resource: Resource },
+    Paragraph {
+        content: Vec<Inline>,
+    },
+    Heading {
+        level: u8,
+        content: Vec<Inline>,
+    },
+    Blockquote {
+        blocks: Vec<Block>,
+    },
+    CodeBlock {
+        language: Option<String>,
+        text: String,
+    },
+    HorizontalRule,
+    List {
+        ordered: bool,
+        items: Vec<ListItem>,
+    },
+    TaskList {
+        items: Vec<TaskItem>,
+    },
+    Table {
+        rows: Vec<TableRow>,
+    },
+    Image {
+        resource: Resource,
+    },
+    Attachment {
+        resource: Resource,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -41,10 +65,28 @@ pub struct TableRow {
     pub cells: Vec<TableCell>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableCell {
     pub header: bool,
     pub blocks: Vec<Block>,
+    #[serde(default = "one")]
+    pub colspan: u64,
+    #[serde(default = "one")]
+    pub rowspan: u64,
+}
+
+fn one() -> u64 {
+    1
+}
+impl Default for TableCell {
+    fn default() -> Self {
+        Self {
+            header: false,
+            blocks: Vec::new(),
+            colspan: 1,
+            rowspan: 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,6 +163,24 @@ fn parse_block(value: &Value) -> VaultResult<Block> {
         "paragraph" => Ok(Block::Paragraph {
             content: parse_inlines(contents(node)?)?,
         }),
+        "blockquote" => Ok(Block::Blockquote {
+            blocks: parse_blocks(contents(node)?)?,
+        }),
+        "codeBlock" => {
+            let mut text = String::new();
+            for value in contents(node)? {
+                let child = object(value, "代码块内容")?;
+                if string_field(child, "type")? != "text" {
+                    return Err(VaultError::Validation("代码块只能包含文本".into()));
+                }
+                text.push_str(string_field(child, "text")?);
+            }
+            Ok(Block::CodeBlock {
+                language: optional_string(attrs(node), "language")?,
+                text,
+            })
+        }
+        "horizontalRule" => Ok(Block::HorizontalRule),
         "heading" => {
             let level = optional_u64(attrs(node), "level")?.unwrap_or(1);
             if !(1..=6).contains(&level) {
@@ -213,6 +273,8 @@ fn parse_table_rows(nodes: &[Value]) -> VaultResult<Vec<TableRow>> {
                     Ok(TableCell {
                         header,
                         blocks: parse_blocks(contents(cell)?)?,
+                        colspan: optional_u64(attrs(cell), "colspan")?.unwrap_or(1).max(1),
+                        rowspan: optional_u64(attrs(cell), "rowspan")?.unwrap_or(1).max(1),
                     })
                 })
                 .collect::<VaultResult<Vec<_>>>()?;
@@ -315,6 +377,17 @@ fn attachment_from_attrs(attrs: &Map<String, Value>) -> VaultResult<Resource> {
 fn block_to_json(block: &Block) -> Value {
     match block {
         Block::Paragraph { content } => json_node("paragraph", None, inline_to_json(content)),
+        Block::Blockquote { blocks } => json_node("blockquote", None, blocks_to_json(blocks)),
+        Block::CodeBlock { language, text } => json_node(
+            "codeBlock",
+            Some(json!({"language": language})),
+            if text.is_empty() {
+                vec![]
+            } else {
+                vec![json!({"type": "text", "text": text})]
+            },
+        ),
+        Block::HorizontalRule => json_node("horizontalRule", None, vec![]),
         Block::Heading { level, content } => json_node(
             "heading",
             Some(json!({ "level": level })),
@@ -363,7 +436,7 @@ fn block_to_json(block: &Block) -> Value {
                                     } else {
                                         "tableCell"
                                     },
-                                    None,
+                                    Some(json!({"colspan": cell.colspan, "rowspan": cell.rowspan})),
                                     blocks_to_json(&cell.blocks),
                                 )
                             })
@@ -621,6 +694,7 @@ mod tests {
                                         marks: vec![],
                                     }],
                                 }],
+                                ..TableCell::default()
                             },
                             TableCell {
                                 header: false,
@@ -630,6 +704,7 @@ mod tests {
                                         marks: vec![],
                                     }],
                                 }],
+                                ..TableCell::default()
                             },
                         ],
                     }],

@@ -8,7 +8,8 @@ export function createMarkdownMode(manager: Pick<MarkdownManager, "parse" | "ser
   const prefix = `tenjee-${crypto.randomUUID()}`;
   const standardMarks = new Set(["bold", "italic", "strike", "code", "link"]);
   function protect(node: JSONContent): JSONContent {
-    const custom = ["pageLink", "drawingBlock", "attachmentBlock", "image"].includes(node.type ?? "");
+    const custom = ["pageLink", "drawingBlock", "attachmentBlock"].includes(node.type ?? "")
+      || (node.type === "image" && !!(node.attrs?.attachmentId || node.attrs?.width));
     const styled = node.marks?.some((mark) => !standardMarks.has(mark.type));
     const linkedTasks = node.type === "taskList" && JSON.stringify(node).includes('"nodeId"');
     if (custom || styled || linkedTasks) {
@@ -40,6 +41,8 @@ export function createMarkdownMode(manager: Pick<MarkdownManager, "parse" | "ser
   }
   return {
     serialize(doc: JSONContent) { preserved.clear(); return manager.serialize(protect(doc)); },
+    // Add uploaded attachments without invalidating references already in source.
+    serializeFragment(doc: JSONContent) { return manager.serialize(protect(doc)); },
     parse(source: string) { return restore(manager.parse(source)); },
   };
 }

@@ -13,7 +13,10 @@ use crate::error::{VaultError, VaultResult};
 /// Remove active HTML before parsing. Remote active content (iframe/object/embed and remote
 /// image loads) is dropped, even if a browser would otherwise display it safely.
 pub fn sanitize(input: &str) -> String {
-    let cleaned = Builder::default().clean(input).to_string();
+    let cleaned = Builder::default()
+        .add_tag_attributes("code", ["class"])
+        .clean(input)
+        .to_string();
     remove_remote_images(&cleaned)
 }
 
@@ -118,6 +121,40 @@ fn parse_blocks(tokens: &[Token], cursor: &mut usize, end: Option<&str>) -> Vec<
                     content: parse_inlines(tokens, cursor, Some(name)),
                 });
             }
+            Token::Start(name, _) if name == "blockquote" => {
+                *cursor += 1;
+                blocks.push(Block::Blockquote {
+                    blocks: parse_container(tokens, cursor, name),
+                });
+            }
+            Token::Start(name, _) if name == "pre" => {
+                *cursor += 1;
+                let mut text = String::new();
+                let mut language = None;
+                while *cursor < tokens.len() {
+                    match &tokens[*cursor] {
+                        Token::End(close) if close == "pre" => {
+                            *cursor += 1;
+                            break;
+                        }
+                        Token::Text(value) => text.push_str(value),
+                        Token::Start(tag, attrs) if tag == "code" => {
+                            language = attr(attrs, "class").and_then(|classes| {
+                                classes.split_whitespace().find_map(|class| {
+                                    class.strip_prefix("language-").map(str::to_owned)
+                                })
+                            });
+                        }
+                        _ => {}
+                    }
+                    *cursor += 1;
+                }
+                blocks.push(Block::CodeBlock { language, text });
+            }
+            Token::Start(name, _) if name == "hr" => {
+                *cursor += 1;
+                blocks.push(Block::HorizontalRule);
+            }
             Token::Start(name, _) if name == "ul" || name == "ol" => {
                 let ordered = name == "ol";
                 *cursor += 1;
@@ -130,10 +167,8 @@ fn parse_blocks(tokens: &[Token], cursor: &mut usize, end: Option<&str>) -> Vec<
                         }
                         Token::Start(item, _) if item == "li" => {
                             *cursor += 1;
-                            let content = parse_inlines(tokens, cursor, Some(item));
-                            items.push(ListItem {
-                                blocks: vec![Block::Paragraph { content }],
-                            });
+                            let content = parse_container(tokens, cursor, item);
+                            items.push(ListItem { blocks: content });
                         }
                         _ => *cursor += 1,
                     }
@@ -172,6 +207,18 @@ fn parse_blocks(tokens: &[Token], cursor: &mut usize, end: Option<&str>) -> Vec<
     blocks
 }
 
+fn parse_container(tokens: &[Token], cursor: &mut usize, end: &str) -> Vec<Block> {
+    let has_blocks = tokens[*cursor..].iter().take_while(|token| !matches!(token, Token::End(name) if name == end))
+        .any(|token| matches!(token, Token::Start(name, _) if matches!(name.as_str(), "p" | "div" | "ul" | "ol" | "table" | "blockquote" | "pre" | "hr" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6")));
+    if has_blocks {
+        parse_blocks(tokens, cursor, Some(end))
+    } else {
+        vec![Block::Paragraph {
+            content: parse_inlines(tokens, cursor, Some(end)),
+        }]
+    }
+}
+
 fn parse_table(tokens: &[Token], cursor: &mut usize) -> Vec<TableRow> {
     let mut rows = Vec::new();
     while *cursor < tokens.len() {
@@ -189,13 +236,27 @@ fn parse_table(tokens: &[Token], cursor: &mut usize) -> Vec<TableRow> {
                             *cursor += 1;
                             break;
                         }
-                        Token::Start(kind, _) if kind == "th" || kind == "td" => {
+                        Token::Start(kind, attrs) if kind == "th" || kind == "td" => {
                             let header = kind == "th";
+                            let span = |key| {
+                                attr(attrs, key)
+                                    .and_then(|value| value.parse::<u64>().ok())
+                                    .unwrap_or(1)
+                                    .max(1)
+                            };
+                            let colspan = span("colspan");
+                            let rowspan = span("rowspan");
                             *cursor += 1;
-                            let content = parse_inlines(tokens, cursor, Some(kind));
+                            let content = parse_container(tokens, cursor, kind);
                             cells.push(TableCell {
                                 header,
-                                blocks: vec![Block::Paragraph { content }],
+                                colspan,
+                                rowspan,
+                                blocks: if content.is_empty() {
+                                    vec![Block::Paragraph { content: vec![] }]
+                                } else {
+                                    content
+                                },
                             });
                         }
                         _ => *cursor += 1,
@@ -338,6 +399,21 @@ fn remove_remote_images(html: &str) -> String {
 fn render_blocks(blocks: &[Block], out: &mut String) {
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => {
+                out.push_str("<blockquote>");
+                render_blocks(blocks, out);
+                out.push_str("</blockquote>");
+            }
+            Block::CodeBlock { language, text } => {
+                out.push_str("<pre><code");
+                if let Some(language) = language {
+                    out.push_str(&format!(" class=\"language-{}\"", escape_attr(language)));
+                }
+                out.push('>');
+                out.push_str(&escape(text));
+                out.push_str("</code></pre>");
+            }
+            Block::HorizontalRule => out.push_str("<hr>"),
             Block::Paragraph { content } => {
                 out.push_str("<p>");
                 render_inlines(content, out);
@@ -381,6 +457,12 @@ fn render_blocks(blocks: &[Block], out: &mut String) {
                         let tag = if cell.header { "th" } else { "td" };
                         out.push('<');
                         out.push_str(tag);
+                        if cell.colspan > 1 {
+                            out.push_str(&format!(" colspan=\"{}\"", cell.colspan));
+                        }
+                        if cell.rowspan > 1 {
+                            out.push_str(&format!(" rowspan=\"{}\"", cell.rowspan));
+                        }
                         out.push('>');
                         render_blocks(&cell.blocks, out);
                         out.push_str(&format!("</{tag}>"));

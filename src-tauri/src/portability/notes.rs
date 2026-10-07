@@ -80,9 +80,11 @@ fn import_file(
         .filter(|name| !name.trim().is_empty())
         .unwrap_or("导入页面")
         .to_owned();
-    let encrypted=crate::notes::section_encrypted(conn,section_id)?;
-    if encrypted { session.with_dsk(section_id, |_| Ok(()))?; }
-    let page = hierarchy::create_page_prepared(conn, section_id, None, &title,false)?;
+    let encrypted = crate::notes::section_encrypted(conn, section_id)?;
+    if encrypted {
+        session.with_dsk(section_id, |_| Ok(()))?;
+    }
+    let page = hierarchy::create_page_prepared(conn, section_id, None, &title, false)?;
     let imported = (|| -> VaultResult<usize> {
         for (source, name, bytes) in &resources {
             let attachment = attachments::save_attachment(
@@ -157,6 +159,7 @@ fn read_local_resources(
 fn replace_resource_source(blocks: &mut [Block], from: &str, to: &str) {
     for block in blocks {
         match block {
+            Block::Blockquote { blocks } => replace_resource_source(blocks, from, to),
             Block::Image { resource } | Block::Attachment { resource } => {
                 replace(resource, from, to)
             }
