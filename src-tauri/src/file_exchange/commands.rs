@@ -490,7 +490,7 @@ pub async fn file_exchange_enter_cmd(
 ) -> VaultResult<crate::sync::session::Status> {
     if !file_exchange_available_cmd() {
         return Err(invalid(
-            "File exchange is in validation; use a development build on Linux, Windows or Android",
+            "File exchange is available on Linux, Windows and Android",
         ));
     }
     let root = journal::root(&app)?;
@@ -514,12 +514,11 @@ pub async fn file_exchange_enter_cmd(
 
 #[tauri::command]
 pub fn file_exchange_available_cmd() -> bool {
-    cfg!(debug_assertions)
-        && cfg!(any(
-            target_os = "linux",
-            target_os = "windows",
-            target_os = "android"
-        ))
+    cfg!(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
+    ))
 }
 
 #[cfg(test)]

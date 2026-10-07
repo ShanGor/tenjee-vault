@@ -62,4 +62,4 @@
 
 ## Implementation evidence (2026-10-06)
 
-See [validation.md](validation.md) for executed checks, benchmark conditions, baseline regression failures, and remaining acceptance. Unchecked tasks may have implementation present; their required native/physical/network verification remains incomplete. Release file mode remains gated. No unavailable physical scenario is treated as passed.
+See [validation.md](validation.md) for executed checks, benchmark conditions, baseline regression failures, and remaining acceptance. Unchecked tasks may have implementation present; their required native/physical/network verification remains incomplete. File mode was enabled for release builds on Linux, Windows, and Android on 2026-10-07 after the user reported successful device file-transfer testing. Detailed acceptance tasks remain unchecked without their specific evidence.

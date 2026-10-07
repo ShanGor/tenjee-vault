@@ -1,6 +1,6 @@
 # Files and folders in Device Exchange
 
-Files & folders is available in development builds on Linux, Windows, and Android. Release builds retain Vault data exchange; file mode remains gated until the physical-device and network acceptance work in the [validation report](../openspec/changes/device-file-exchange/validation.md) is complete. macOS and iOS file mode are unavailable.
+Files & folders is available in debug and release builds on Linux, Windows, and Android. File mode was enabled for release builds after the user reported successful testing on 2026-10-07. The [validation report](../openspec/changes/device-file-exchange/validation.md) records automated evidence and the remaining detailed acceptance scenarios. macOS and iOS file mode are unavailable.
 
 ## Send a batch
 
@@ -49,4 +49,4 @@ Tailscale is an optional network transport. Tenjee does not require its CLI or c
 
 Use `npm run tauri -- dev` for desktop development and `npm run android:apk -- --ci` for an ARM64 debug APK. Android's tracked native sources are described in [Android development](android-development.md). The separate [OpenSpec change](../openspec/changes/device-file-exchange/proposal.md) contains the design and remaining acceptance tasks.
 
-Rollback keeps Files & folders unavailable through `file_exchange_available_cmd` and preserves Vault data exchange's legacy authentication/protocol identifier. Retain transfer journals and owned files if rolling back to a build that cannot resume them; do not run generic vault/import cache cleanup over transfer storage. No vault-schema migration is required for file mode.
+To roll back file-mode availability, disable Files & folders through `file_exchange_available_cmd`, preserving Vault data exchange's legacy authentication/protocol identifier. Retain transfer journals and owned files if rolling back to a build that cannot resume them; do not run generic vault/import cache cleanup over transfer storage. No vault-schema migration is required for file mode.

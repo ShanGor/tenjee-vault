@@ -143,10 +143,10 @@ See [mobile and LAN exchange](docs/mobile-and-lan-sync.md)
 for the mobile layouts, pairing workflow, scope, conflict rules, and recovery behavior, and the
 [OpenSpec proposal](openspec/changes/mobile-and-lan-sync/proposal.md) for implementation planning.
 
-Development builds on Linux, Windows, and Android also include **Files & folders** for selected
+Debug and release builds on Linux, Windows, and Android also include **Files & folders** for selected
 files, multiple files, and folders, with verified streaming and fresh-pairing resume. See
-[file exchange](docs/device-file-exchange.md) for the workflow and provider limits. File mode remains
-gated in release builds while physical-device and LAN/VPN acceptance is pending.
+[file exchange](docs/device-file-exchange.md) for the workflow and provider limits. File mode was
+enabled for release builds after the user reported successful testing on 2026-10-07.
 
 Android development now has a native project and build commands. See
 [Android development](docs/android-development.md) for APK builds, device installation, and the

@@ -1,6 +1,10 @@
 # Device file exchange implementation and validation
 
-Recorded 2026-10-06. Implementation is present; **24/36 tasks are checked**. Remaining tasks retain their original acceptance requirements. Files & folders is enabled only when `debug_assertions` is true on Linux, Windows, or Android. Release file mode, macOS, and iOS remain disabled. Existing release Vault data exchange stays available.
+Recorded 2026-10-06. Implementation is present; **24/36 tasks are checked**. Remaining tasks retain their original acceptance requirements. At the time of these checks, Files & folders was enabled only in debug builds on Linux, Windows, or Android. Existing release Vault data exchange stayed available.
+
+Release promotion (2026-10-07): the user reported successful device file-transfer testing and requested release availability. Files & folders is now enabled in debug and release builds on Linux, Windows, and Android; macOS and iOS remain unavailable. The earlier evidence below, including [checks.json](evidence/checks.json), records the pre-promotion build. No exact device, provider, or route details were supplied, so the detailed acceptance scenarios remain unchecked.
+
+Promotion checks: `npm test` passed 44 frontend tests and 3 Node script tests; `cargo test --locked --lib file_exchange:: -- --test-threads=4` passed 22 tests with 1 ignored child-process worker invoked by its parent test. `npm run tauri -- build --ci` passed the production frontend and optimized Linux application build and produced `src-tauri/target/release/bundle/appimage/Tenjee Vault_1.0.0_amd64.AppImage`.
 
 The [workflow guide](../../../docs/device-file-exchange.md) describes selection, consent, saving, resume, cleanup, and troubleshooting. Non-UTF-8 desktop names currently stop preparation with an explicit error, rather than becoming a renamed exclusion; the delta specification permits explicit rejection. Supported unreadable/symlink/special entries become previewed exclusions. No silent filename sanitization or payload fallback is used.
 
@@ -75,7 +79,7 @@ These local samples satisfy the relative-throughput and working-memory threshold
 
 The real file panel and application CSS were rendered with bounded mocked native metadata in Chrome's viewport emulation. [Layout results](evidence/ui-layout.json), [390 px phone screenshot](evidence/ui-phone.png), and [1280 px desktop screenshot](evidence/ui-desktop.png) show visible consent and no horizontal overflow. These are component layout checks, not physical Android screenshots or lifecycle acceptance. Frontend tests also distinguish Saving at 100% from confirmed completion, partial/unconfirmed outcomes, bilingual approval, and exact large totals.
 
-## Remaining acceptance and release gate
+## Remaining detailed acceptance
 
 | Scenario | Status / required evidence |
 | --- | --- |
@@ -88,4 +92,4 @@ The real file panel and application CSS were rendered with bounded mocked native
 | 20/80 ms RTT profiles | Pending shaped LAN/VPN throughput, RSS/CPU/retransmission and checkpoint tuning |
 | Complete vault regression acceptance | Five demonstrated baseline failures plus physical platform checks remain open |
 
-No connected Android peer, authorized remote recipient, or native Windows runner was available in this workspace. Reachable local LAN/Tailscale interfaces alone are not peer-transfer evidence. No runtime Tailscale CLI dependency was introduced. The work leaves file mode gated rather than advertising unvalidated targets as release-supported. Do not archive the change or check the remaining tasks until their evidence exists.
+At the time of the recorded checks, no connected Android peer, authorized remote recipient, or native Windows runner was available in this workspace. Reachable local LAN/Tailscale interfaces alone are not peer-transfer evidence. No runtime Tailscale CLI dependency was introduced. The subsequent user-reported successful testing authorized release availability; the detailed matrix above still needs its specific evidence before the remaining tasks can be checked or the change archived.

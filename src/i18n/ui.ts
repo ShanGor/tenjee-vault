@@ -59,7 +59,7 @@ export const uiEnglish = {
   "预览": "Preview",
   "Markdown 预览": "Markdown preview",
   "附件上传失败：{p0}": "Attachment upload failed: {p0}",
-  "文件交换目前仅在 Linux、Windows 和 Android 开发构建中开放，正式启用前仍需完成设备和网络验证。": "File exchange is available in Linux, Windows and Android development builds while device and network validation is completed.",
+  "文件交换支持 Linux、Windows 和 Android。当前平台暂不支持文件交换。": "File exchange supports Linux, Windows and Android. It is not yet supported on this platform.",
   "尚未确认：文件回执已保存，但批次未得到最终确认。重新配对以核对结果，不会重复已验证的文件。": "Unconfirmed: file receipts were saved, but the batch has no final confirmation. Pair again to reconcile the result without duplicating verified files.",
   "部分完成：已保存的文件和检查点会保留。重新配对后可继续剩余内容。": "Partial: saved files and checkpoints are retained. Pair again to resume the remaining content.",
   "本次传输失败或已取消，尚未保存接受的内容。请检查错误并重新配对。": "Transfer failed or was cancelled before accepted content was saved. Check the error and pair again.",

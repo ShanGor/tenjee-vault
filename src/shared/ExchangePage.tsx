@@ -67,7 +67,7 @@ export function ExchangePage() {
       <button className="rounded border px-4 py-2" aria-pressed={mode==="vault"} disabled={active || busy} onClick={()=>setMode("vault")}>{ui("Vault 数据")}</button>
       <button className="rounded border px-4 py-2" aria-pressed={mode==="files"} disabled={active || busy || !fileAvailable} onClick={()=>setMode("files")}>{ui("文件与文件夹")}</button>
     </div>
-    {!fileAvailable && <p className="text-sm text-neutral-500">{ui("文件交换目前仅在 Linux、Windows 和 Android 开发构建中开放，正式启用前仍需完成设备和网络验证。")}</p>}
+    {!fileAvailable && <p className="text-sm text-neutral-500">{ui("文件交换支持 Linux、Windows 和 Android。当前平台暂不支持文件交换。")}</p>}
     {mode==="files" && <FileExchangePanel active={active} busy={busy} phase={status.phase} progress={status.files} peerLabel={status.peer?.label ?? ""} peerPlatform={status.peer?.platform ?? ""} onIntent={updateFileIntent} action={action}/>}
     {error && <p role="alert" className="rounded border border-red-300 p-3">{error}</p>}
     <section className="space-y-3 rounded-lg border p-4">
