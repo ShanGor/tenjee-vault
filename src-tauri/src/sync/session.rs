@@ -130,6 +130,17 @@ impl Session {
         self.exchange_workspace(&state.inner,stream,receiver)
     }
     fn exchange_workspace(&self, inner: &crate::commands::AppStateInner, stream: &mut (impl std::io::Read + std::io::Write), receiver: bool) -> VaultResult<()> {
+        let result = self.exchange_workspace_inner(inner, stream, receiver);
+        if let Err(error) = &result {
+            // Best effort, without replacing the original local failure. A peer
+            // failure is already reported by the other device; do not echo it.
+            if self.check().is_ok() && !matches!(error, VaultError::Validation(detail) if detail.starts_with("Peer exchange failed: ")) {
+                let _ = auth::send_failure(stream, error);
+            }
+        }
+        result
+    }
+    fn exchange_workspace_inner(&self, inner: &crate::commands::AppStateInner, stream: &mut (impl std::io::Read + std::io::Write), receiver: bool) -> VaultResult<()> {
         engine::recover(inner)?;
         let snapshot=engine::snapshot(inner)?;
         let local=engine::hello(inner, &self.state().status.label, &snapshot)?;
@@ -264,6 +275,9 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
                             let _=stream.sock.set_read_timeout(Some(Duration::from_secs(if owner.file_intent.is_some(){120}else{1800})));
                             if owner.file_intent.is_some(){let _=stream.sock.set_write_timeout(Some(Duration::from_secs(120)));}
                             let result=owner.exchange(&app,&mut stream,true);
+                            // A successful exchange has already received the
+                            // committed receipt. Shutdown errors cannot undo it.
+                            let _=auth::close(&mut stream);
                             if let Err(error)=result { owner.phase("failed",&serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Exchange failed".into())); }
                             owner.cancel("Exchange ended; pair again to resume");
                             break;
@@ -359,7 +373,9 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
             owner.authenticated();
             stream.sock.set_read_timeout(Some(Duration::from_secs(if owner.file_intent.is_some(){120}else{1800})))?;
             if owner.file_intent.is_some(){stream.sock.set_write_timeout(Some(Duration::from_secs(120)))?;}
-            owner.exchange(&app,&mut stream,false)
+            let result=owner.exchange(&app,&mut stream,false);
+            let _=auth::close(&mut stream);
+            result
         })();
         if let Err(error)=result { owner.phase("failed",&serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Exchange failed".into())); }
         owner.cancel("Exchange ended; pair again to resume");
@@ -443,6 +459,7 @@ mod tests {
         let right_inner = right.inner.clone();
         let server = std::thread::spawn(move || {
             let (socket, _) = listener.accept().unwrap();
+            receiving.register_socket(&socket).unwrap();
             let mut stream = auth::server(
                 socket,
                 &auth::ServerIdentity::new().unwrap(),
@@ -454,16 +471,24 @@ mod tests {
                 .sock
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
-            receiving.exchange_workspace(&right_inner, &mut stream, true)
+            let result = receiving.exchange_workspace(&right_inner, &mut stream, true);
+            auth::close(&mut stream).unwrap();
+            receiving.cancel("Exchange ended; pair again to resume");
+            result
         });
         let client = std::thread::spawn(move || {
+            let socket = TcpStream::connect(address).unwrap();
+            connecting.register_socket(&socket).unwrap();
             let mut stream =
-                auth::client(TcpStream::connect(address).unwrap(), "01234567").unwrap();
+                auth::client(socket, "01234567").unwrap();
             stream
                 .sock
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
-            connecting.exchange_workspace(&left_inner, &mut stream, false)
+            let result = connecting.exchange_workspace(&left_inner, &mut stream, false);
+            auth::close(&mut stream).unwrap();
+            connecting.cancel("Exchange ended; pair again to resume");
+            result
         });
         let deadline = Instant::now() + Duration::from_secs(10);
         while receiver.status().phase != "approval" || connector.status().phase != "approval" {
@@ -480,6 +505,47 @@ mod tests {
         assert_eq!(connector.status().phase, "finished");
         assert_eq!(receiver.status().result.unwrap().pending_groups, 0);
         assert_eq!(connector.status().result.unwrap().pending_groups, 0);
+    }
+
+    #[test]
+    fn workspace_failure_reports_the_reason_to_the_other_device() {
+        for server_fails in [true, false] {
+            let (_left_dir, left) = workspace();
+            let (_right_dir, right) = workspace();
+            let broken = if server_fails { &right } else { &left };
+            let attachment = broken.inner.with_tasks(|conn| {
+                let list = crate::tasks::lists::create_list(conn, "Missing attachment", None)?;
+                let task = crate::tasks::tasks::create_task(conn, &list.id, None, "Missing attachment")?;
+                crate::tasks::attachments::save_attachment(&broken.inner.tasks_files_dir(), conn,
+                    &task.id, "missing.bin", None, b"missing attachment")
+            }).unwrap();
+            std::fs::remove_file(crate::blob_store::blob_path(&broken.inner.tasks_files_dir(), &attachment.hash)).unwrap();
+
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let receiver = session();
+            let connector = session();
+            let server = std::thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                receiver.register_socket(&socket).unwrap();
+                let mut stream = auth::server(socket, &auth::ServerIdentity::new().unwrap(),
+                    &receiver.id, "01234567").unwrap();
+                let result = receiver.exchange_workspace(&right.inner, &mut stream, true);
+                let _ = auth::close(&mut stream);
+                receiver.cancel("Exchange ended");
+                result
+            });
+            let socket = TcpStream::connect(address).unwrap();
+            connector.register_socket(&socket).unwrap();
+            let mut stream = auth::client(socket, "01234567").unwrap();
+            let client_result = connector.exchange_workspace(&left.inner, &mut stream, false);
+            let _ = auth::close(&mut stream);
+            connector.cancel("Exchange ended");
+            let server_result = server.join().unwrap();
+            let (local, remote) = if server_fails { (server_result, client_result) } else { (client_result, server_result) };
+            let detail = local.unwrap_err().payload().params.into_iter().find(|(key, _)| *key == "detail").unwrap().1;
+            assert!(matches!(&remote, Err(VaultError::Validation(message)) if message == &format!("Peer exchange failed: {detail}")), "server_fails={server_fails}, peer result: {remote:?}, local detail: {detail}");
+        }
     }
 
     #[test]

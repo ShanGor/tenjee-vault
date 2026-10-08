@@ -14,9 +14,10 @@ use rustls::{ClientConfig, ClientConnection, ServerConfig, ServerConnection, Str
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
+use std::ops::DerefMut;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 pub const PROTOCOL: &str = "tenjee-lan-v1-opaque-ristretto255-sha512-tls13-entities2";
@@ -29,6 +30,53 @@ impl Protocol {
 const MAX_AUTH_FRAME: usize = 2048;
 pub const MAX_FRAME: usize = 16 * 1024 * 1024;
 type Confirmation = Hmac<Sha256>;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PeerFailure {
+    #[serde(rename = "tenjeeExchangeError")]
+    detail: String,
+}
+
+/// Only used after vault authentication. Normal frames keep their v1 encoding.
+pub fn send_failure(stream: &mut impl Write, error: &VaultError) -> VaultResult<()> {
+    let detail = error.payload().params.into_iter()
+        .find(|(key, _)| *key == "detail")
+        .map(|(_, value)| value)
+        .unwrap_or_else(|| error.to_string());
+    send(stream, &PeerFailure { detail: detail.chars().take(512).collect() })
+}
+
+/// Flush the TLS close alert before the session shuts down its socket clones.
+/// Completion is established by application receipts rather than by EOF. Drain
+/// in-flight TCP data briefly so dropping an unread socket cannot reset the
+/// connection and discard the final receipt or failure message at the peer.
+pub fn close<C, S>(stream: &mut StreamOwned<C, TcpStream>) -> std::io::Result<()>
+where
+    C: DerefMut<Target = rustls::ConnectionCommon<S>>,
+    S: rustls::SideData,
+{
+    stream.conn.send_close_notify();
+    stream.flush()?;
+    if let Err(error) = stream.sock.shutdown(Shutdown::Write) {
+        if error.kind() == std::io::ErrorKind::NotConnected { return Ok(()); }
+        return Err(error);
+    }
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut buffer = [0; 16 * 1024];
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() { break; }
+        stream.sock.set_read_timeout(Some(remaining))?;
+        match stream.sock.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(_) => {},
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {},
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
 
 fn invalid(message: &str) -> VaultError {
     VaultError::Validation(message.into())
@@ -58,6 +106,9 @@ pub fn receive<T: serde::de::DeserializeOwned>(
     }
     let mut bytes = vec![0; length];
     stream.read_exact(&mut bytes)?;
+    if let Ok(failure) = serde_json::from_slice::<PeerFailure>(&bytes) {
+        return Err(invalid(&format!("Peer exchange failed: {}", failure.detail)));
+    }
     serde_json::from_slice(&bytes).map_err(|_| invalid("Invalid exchange message"))
 }
 
@@ -410,6 +461,80 @@ pub fn client(socket: TcpStream, code: &str) -> VaultResult<StreamOwned<ClientCo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn final_frames_survive_session_shutdown_and_both_roles_send_close_notify() {
+        for server_closes in [true, false] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let worker = std::thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                let shutdown_socket = socket.try_clone().unwrap();
+                let mut stream = server(socket, &ServerIdentity::new().unwrap(),
+                    &uuid::Uuid::new_v4().to_string(), "01234567").unwrap();
+                if server_closes {
+                    send(&mut stream, &serde_json::json!({"committed": true})).unwrap();
+                    close(&mut stream).unwrap();
+                    let _ = shutdown_socket.shutdown(Shutdown::Both);
+                } else {
+                    let receipt: serde_json::Value = receive(&mut stream, 4096).unwrap();
+                    assert_eq!(receipt["committed"], true);
+                    assert_eq!(stream.read(&mut [0; 1]).unwrap(), 0);
+                }
+            });
+            let socket = TcpStream::connect(address).unwrap();
+            let shutdown_socket = socket.try_clone().unwrap();
+            let mut stream = client(socket, "01234567").unwrap();
+            if server_closes {
+                let receipt: serde_json::Value = receive(&mut stream, 4096).unwrap();
+                assert_eq!(receipt["committed"], true);
+                assert_eq!(stream.read(&mut [0; 1]).unwrap(), 0);
+            } else {
+                send(&mut stream, &serde_json::json!({"committed": true})).unwrap();
+                close(&mut stream).unwrap();
+                let _ = shutdown_socket.shutdown(Shutdown::Both);
+            }
+            worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn peer_failures_are_reported_and_truncated_messages_still_fail() {
+        let mut bytes = Vec::new();
+        send_failure(&mut bytes, &invalid("Incompatible exchange schema; update both applications")).unwrap();
+        let error = receive::<serde_json::Value>(&mut bytes.as_slice(), 4096).unwrap_err();
+        assert!(matches!(error, VaultError::Validation(detail) if detail == "Peer exchange failed: Incompatible exchange schema; update both applications"));
+
+        let mut bytes = Vec::new();
+        send(&mut bytes, &serde_json::json!({"committed": true})).unwrap();
+        for length in [0, 2, 4, bytes.len() - 1] {
+            let error = receive::<serde_json::Value>(&mut &bytes[..length], 4096).unwrap_err();
+            assert!(matches!(error, VaultError::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof));
+        }
+    }
+
+    #[test]
+    fn tls_shutdown_does_not_make_a_partial_receipt_successful() {
+        for orderly in [true, false] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let worker = std::thread::spawn(move || {
+                let (socket, _) = listener.accept().unwrap();
+                let mut stream = server(socket, &ServerIdentity::new().unwrap(),
+                    &uuid::Uuid::new_v4().to_string(), "01234567").unwrap();
+                // The length declares a full receipt, but only its prefix arrives.
+                stream.write_all(&18u32.to_be_bytes()).unwrap();
+                stream.write_all(b"{\"committed\":").unwrap();
+                stream.flush().unwrap();
+                if orderly { let _ = close(&mut stream); }
+            });
+            let mut stream = client(TcpStream::connect(address).unwrap(), "01234567").unwrap();
+            let error = receive::<serde_json::Value>(&mut stream, 4096).unwrap_err();
+            assert!(matches!(error, VaultError::Io(error) if error.kind() == std::io::ErrorKind::UnexpectedEof));
+            drop(stream);
+            worker.join().unwrap();
+        }
+    }
+
     #[test]
     fn matching_code_authenticates_tls_and_wrong_code_never_returns_a_stream() {
         for matches in [true, false] {

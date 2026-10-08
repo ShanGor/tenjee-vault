@@ -7,7 +7,11 @@ export function formatExchangeError(error: unknown, fallback = uiError): string 
   try {
     const payload = JSON.parse(raw);
     const detail = Object.fromEntries(payload.params ?? []).detail;
-    if (payload.code === "validation" && detail) return String(detail);
+    if (payload.code === "validation" && detail) {
+      const prefix = "Peer exchange failed: ";
+      if (String(detail).startsWith(prefix)) return ui("对方设备交换失败：{p0}", { p0: String(detail).slice(prefix.length) });
+      return String(detail);
+    }
     if (payload.code === "io" && detail) return ui("设备交换失败：{p0}", { p0: String(detail) });
   } catch { /* Plain lifecycle messages use the usual formatter. */ }
   return fallback(error);

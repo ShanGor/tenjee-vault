@@ -64,6 +64,8 @@ Protected content moves as stored ciphertext plus its wrapped key metadata, even
 
 Transfers validate schemas, bounds, hashes, references, and free disk space. No visible attachment reference points to a partially received blob. Wi-Fi loss, suspension, cancellation, or a crash preserves valid committed work and recoverable progress; reconnect with a fresh code to resume. Stopping does not undo already committed changes. An interrupted exchange reports a partial result rather than success. Changes made after its approved snapshot are shown as pending for the next exchange.
 
+Vault exchange attempts to send the reason for a local failure to the paired device before closing the connection. Updated builds display this as **Peer device exchange failed**, followed by the reason. If an older build reports `peer closed connection without sending TLS close_notify`, check the other device's error as well. Rebuild/update both devices, fully quit any running instance (including the system tray), and start a fresh pairing to retry.
+
 Sync merges logical objects; it does not replace database files or run backup restore. Keep backups as a separate recovery mechanism. Restoring or cloning a vault generates a new local replica identity while retaining object IDs/history, then reconciles peers again so revision counters do not collide. Incompatible protocol/schema versions stop before workspace writes and explain which app needs updating.
 
 ## Delivery order and acceptance
