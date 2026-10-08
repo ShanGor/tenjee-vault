@@ -4,6 +4,15 @@ import { formatExchangeError } from "./exchangeError";
 
 afterEach(() => setUILocale("en"));
 
+it("identifies a peer failure and preserves its reason in both locales", () => {
+  const detail = "Incompatible exchange schema; update both applications";
+  const error = JSON.stringify({ code: "validation", params: [["detail", `Peer exchange failed: ${detail}`]] });
+  setUILocale("en");
+  expect(formatExchangeError(error)).toBe(`Peer device exchange failed: ${detail}`);
+  setUILocale("zh-CN");
+  expect(formatExchangeError(error)).toBe(`对方设备交换失败：${detail}`);
+});
+
 it("preserves disk and connection error details in both exchange UI locales", () => {
   for (const detail of ["Access is denied. (os error 5)", "Connection reset by peer (os error 104)"]) {
     const error = JSON.stringify({ code: "io", params: [["detail", detail]] });

@@ -136,6 +136,7 @@ export const uiEnglish = {
   "交换已完成": "Exchange completed",
   "交换未完成": "Exchange did not finish",
   "设备交换失败：{p0}": "Device exchange failed: {p0}",
+  "对方设备交换失败：{p0}": "Peer device exchange failed: {p0}",
   "交换已停止": "Exchange stopped",
   "开启交换模式": "Enter exchange mode",
   "停止交换": "Stop exchange",
