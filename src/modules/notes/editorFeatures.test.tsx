@@ -10,11 +10,18 @@ import { MarkdownEditor, formatMarkdown } from "./MarkdownEditor";
 import { buildEditorExtensions } from "./editorExtensions";
 import { createMarkdownMode } from "./markdownMode";
 import { setUILocale } from "../../i18n/ui";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import capabilities from "../../../src-tauri/capabilities/default.json";
+
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 let root: Root;
 let host: HTMLDivElement;
 let editor: Editor;
 beforeEach(() => {
+  vi.clearAllMocks();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   setUILocale("zh-CN");
   host = document.createElement("div"); document.body.append(host);
@@ -42,6 +49,61 @@ function field(label: string, value: string) {
   });
   return input;
 }
+
+it("prevents ordinary edit-mode link clicks, including nested formatting, but allows browsing", () => {
+  toolbar();
+  act(() => editor.commands.setContent('<p><a href="https://example.com"><strong>Example</strong></a></p>'));
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  const linkText = host.querySelector("a strong")!;
+  const editClick = new MouseEvent("click", { bubbles: true, cancelable: true });
+  act(() => linkText.dispatchEvent(editClick));
+  expect(editClick.defaultPrevented).toBe(true);
+  expect(open).not.toHaveBeenCalled();
+  expect(openUrl).not.toHaveBeenCalled();
+  act(() => editor.setEditable(false));
+  const browseClick = new MouseEvent("click", { bubbles: true, cancelable: true });
+  act(() => linkText.dispatchEvent(browseClick));
+  expect(browseClick.defaultPrevented).toBe(false);
+});
+
+it.each(["ctrlKey", "metaKey"])("opens edit-mode links with %s in desktop and browser environments", async (modifier) => {
+  toolbar();
+  act(() => editor.commands.setContent('<p><a href="https://example.com">Example</a></p>'));
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  const link = host.querySelector("a")!;
+  act(() => link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, [modifier]: true })));
+  expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener,noreferrer");
+  vi.stubGlobal("isTauri", true);
+  vi.mocked(openUrl).mockResolvedValueOnce();
+  await act(async () => { link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, [modifier]: true })); });
+  expect(openUrl).toHaveBeenCalledWith("https://example.com/");
+});
+
+it("copies exact code through the native clipboard with an explicit write permission", async () => {
+  vi.stubGlobal("__TAURI_INTERNALS__", {});
+  vi.mocked(writeText).mockResolvedValueOnce();
+  toolbar();
+  const source = 'const value = "你好";\n\n  value;\n';
+  await act(async () => { editor.commands.setContent({ type: "doc", content: [{ type: "codeBlock", content: [{ type: "text", text: source }] }] }); });
+  await act(async () => click("复制代码"));
+  expect(writeText).toHaveBeenCalledWith(source);
+  expect(host.textContent).toContain("已复制");
+  expect(host.textContent).not.toContain("复制失败");
+  expect(capabilities.permissions).toContain("clipboard-manager:allow-write-text");
+});
+
+it("reports a clipboard failure and clears the error after retrying successfully in browse mode", async () => {
+  const copy = vi.fn().mockRejectedValueOnce(new Error("Clipboard unavailable")).mockResolvedValueOnce(undefined);
+  vi.stubGlobal("navigator", { clipboard: { writeText: copy } });
+  toolbar();
+  await act(async () => { editor.commands.setContent("<pre><code>example</code></pre>"); editor.setEditable(false); });
+  await act(async () => click("复制代码"));
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("复制失败");
+  await act(async () => click("复制代码"));
+  expect(copy).toHaveBeenLastCalledWith("example");
+  expect(host.textContent).toContain("已复制");
+  expect(host.querySelector('[role="status"]')).toBeNull();
+});
 
 it("keeps table actions available and enables row/column operations when the cursor enters a table", () => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });

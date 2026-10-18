@@ -3,7 +3,10 @@ import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import TaskList from "@tiptap/extension-task-list";
 import { LinkedTaskItem } from "./LinkedTaskItem";
-import { generateHTML, type Extensions } from "@tiptap/core";
+import { Extension, generateHTML, type Extensions } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { markdownTable } from "./MarkdownTable";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -16,9 +19,34 @@ import { Details, DetailsContent, DetailsSummary } from "@tiptap/extension-detai
 import { api } from "./api";
 import { AttachmentBlock, AttachmentImage, DrawingBlock, PageLink } from "./extensions";
 
+const EditorLinkClicks = Extension.create({
+  name: "editorLinkClicks",
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      props: {
+        handleDOMEvents: {
+          click: (view, event) => {
+            if (!view.editable || event.button !== 0) return false;
+            const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+            if (!link || !view.dom.contains(link)) return false;
+            // Also cancel native navigation and Tauri's automatic link opener.
+            event.preventDefault();
+            if (event.ctrlKey || event.metaKey) {
+              if (isTauri()) void openUrl(link.href).catch(console.error);
+              else window.open(link.href, "_blank", "noopener,noreferrer");
+            }
+            return true;
+          },
+        },
+      },
+    })];
+  },
+});
+
 export function buildEditorExtensions(spaceId: string) {
   const extensions: Extensions = [
     StarterKit.configure({ codeBlock: false, link: { openOnClick: false } }),
+    EditorLinkClicks,
     NoteCodeBlock,
     Details.configure({
       persist: true,
