@@ -10,12 +10,6 @@ impl DesktopCapabilities {
     }
 }
 
-pub fn replace_system_shortcuts(_: &tauri::AppHandle, _: &str, _: &str) -> Result<(), String> {
-    // The app's keyboard map still works with an attached keyboard. OS-global
-    // shortcut registration is a desktop capability and is not attempted here.
-    Ok(())
-}
-
 pub fn quit(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<AppState>() {
         state.inner.session.lock_all();

@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use crate::db::connection;
 use crate::db::layout;
@@ -631,7 +631,33 @@ pub fn settings_of(inner: &AppStateInner) -> VaultResult<AppSettings> {
         close_to_tray: parse_setting(&get_setting(inner, SETTING_CLOSE_TO_TRAY)?, true),
         app_locale: inner.get_setting_string(SETTING_APP_LOCALE, "system")?,
         app_theme: inner.get_setting_string(SETTING_APP_THEME, "system")?,
-        app_shortcuts: inner.get_setting_string(SETTING_APP_SHORTCUTS, "{}")?,
+        app_shortcuts: {
+            let raw = inner.get_setting_string(SETTING_APP_SHORTCUTS, "{}")?;
+            let migrated = inner.get_setting_string("app_shortcuts_focus_only_migrated", "false")?;
+            if migrated != "true" {
+                let mut shortcuts: serde_json::Value = serde_json::from_str(&raw)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                if shortcuts
+                    .get("quick-task")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|value| {
+                        value.split('+')
+                            .map(|part| part.trim().to_ascii_lowercase())
+                            .collect::<Vec<_>>()
+                            .join("+")
+                    })
+                    .is_some_and(|value| value == "mod+shift+t" || value == "cmdorctrl+shift+t")
+                {
+                    shortcuts["quick-task"] = serde_json::json!("Mod+T");
+                }
+                let updated = shortcuts.to_string();
+                set_setting(inner, SETTING_APP_SHORTCUTS, &updated)?;
+                set_setting(inner, "app_shortcuts_focus_only_migrated", "true")?;
+                updated
+            } else {
+                raw
+            }
+        },
     })
 }
 
@@ -642,7 +668,6 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, VaultErro
 
 #[tauri::command]
 pub fn set_setting_cmd(
-    app: AppHandle,
     state: State<'_, AppState>,
     key: String,
     value: String,
@@ -716,24 +741,14 @@ pub fn set_setting_cmd(
         return Err(VaultError::Validation("上次自动备份时间由应用维护".into()));
     }
     if key == SETTING_CLIPBOARD_AUTO_CLEAR && value.parse::<u64>().is_err() { return Err(VaultError::Validation("剪贴板时长必须为非负整数".into())); }
-    let mut previous_shortcuts = None;
     if key == SETTING_APP_SHORTCUTS {
         let parsed: serde_json::Value = serde_json::from_str(&value)
             .map_err(|_| VaultError::Validation("快捷键设置必须是 JSON 对象".into()))?;
         if !parsed.is_object() {
             return Err(VaultError::Validation("快捷键设置必须是 JSON 对象".into()));
         }
-        let previous = state
-            .inner
-            .get_setting_string(SETTING_APP_SHORTCUTS, "{}")?;
-        crate::desktop::replace_system_shortcuts(&app, &value, &previous)
-            .map_err(VaultError::Validation)?;
-        previous_shortcuts = Some(previous);
     }
-    if let Err(error) = set_setting(&state.inner, &key, &value) {
-        if let Some(previous) = previous_shortcuts { crate::desktop::replace_system_shortcuts(&app,&previous,&value).map_err(VaultError::Validation)?; }
-        return Err(error);
-    }
+    set_setting(&state.inner, &key, &value)?;
     settings_of(&state.inner)
 }
 
@@ -756,12 +771,8 @@ pub fn reset_group(inner: &AppStateInner, group: &str) -> VaultResult<AppSetting
 }
 
 #[tauri::command]
-pub fn reset_settings_group(app: AppHandle,state: State<'_,AppState>,group:String) -> VaultResult<AppSettings> {
-    let previous = settings_of(&state.inner)?.app_shortcuts;
-    if group == "shortcuts" { crate::desktop::replace_system_shortcuts(&app,"{}",&previous).map_err(VaultError::Validation)?; }
-    let result = reset_group(&state.inner,&group);
-    if result.is_err() && group == "shortcuts" { crate::desktop::replace_system_shortcuts(&app,&previous,"{}").map_err(VaultError::Validation)?; }
-    result
+pub fn reset_settings_group(state: State<'_,AppState>,group:String) -> VaultResult<AppSettings> {
+    reset_group(&state.inner, &group)
 }
 
 // ---------------------------------------------------------------- 空间
@@ -986,6 +997,24 @@ mod tests {
         let app = AppState::init(root, report).unwrap();
         let spaces = app.inner.with_meta(|m| registry::list_spaces(m)).unwrap();
         assert_eq!(spaces[0].name, "我的工作区");
+    }
+
+    #[test]
+    fn legacy_quick_task_shortcut_migrates_once() {
+        let (_dir, app) = state();
+        let inner = &app.inner;
+        set_setting(inner, SETTING_APP_SHORTCUTS, r#"{"quick-task":"Mod+Shift+T","quick-note":"Mod+N"}"#).unwrap();
+        let saved = settings_of(inner).unwrap();
+        let shortcuts: serde_json::Value = serde_json::from_str(&saved.app_shortcuts).unwrap();
+        assert_eq!(shortcuts["quick-task"], "Mod+T");
+        assert_eq!(shortcuts["quick-note"], "Mod+N");
+        assert_eq!(inner.get_setting_string(SETTING_APP_SHORTCUTS, "{}").unwrap(), saved.app_shortcuts);
+
+        // An explicit customization after migration must remain available.
+        set_setting(inner, SETTING_APP_SHORTCUTS, r#"{"quick-task":"Mod+Shift+T"}"#).unwrap();
+        let saved = settings_of(inner).unwrap();
+        let shortcuts: serde_json::Value = serde_json::from_str(&saved.app_shortcuts).unwrap();
+        assert_eq!(shortcuts["quick-task"], "Mod+Shift+T");
     }
 
     #[test]
