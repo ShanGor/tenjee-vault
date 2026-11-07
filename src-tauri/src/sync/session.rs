@@ -484,7 +484,7 @@ mod tests {
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             let result = receiving.exchange_workspace(&right_inner, &mut stream, true);
-            auth::close(&mut stream).unwrap();
+            let _ = auth::close(&mut stream);
             receiving.cancel("Exchange ended; pair again to resume");
             result
         });
@@ -498,7 +498,7 @@ mod tests {
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
             let result = connecting.exchange_workspace(&left_inner, &mut stream, false);
-            auth::close(&mut stream).unwrap();
+            let _ = auth::close(&mut stream);
             connecting.cancel("Exchange ended; pair again to resume");
             result
         });
@@ -628,6 +628,42 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn locked_protected_tree_exchange_needs_no_source_unlock() {
+        let (_left_dir, left) = workspace();
+        let (_right_dir, right) = workspace();
+        let space = left.inner.with_meta(|conn| {
+            Ok(crate::db::registry::list_spaces(conn)?.first().unwrap().id.clone())
+        }).unwrap();
+        let (root, child, domain) = left.inner.with_space(&space, |conn| {
+            let root = crate::notes::page_tree::create(conn, &left.inner.session, None, "Private root")?;
+            let child = crate::notes::page_tree::create(conn, &left.inner.session, Some(&root.id), "Private child")?;
+            crate::notes::pages::save_page(conn, &left.inner.session, &child.id, &child.title, "secret body")?;
+            let domain = crate::notes::page_tree::protect(conn, &left.inner.files_dir(&space), &left.inner.session, &root.id, "password", true)?;
+            // Legacy encrypted titles are valid ciphertext and must not require
+            // unlock-time migration before a locked exchange.
+            let title = crate::notes::protect_content(&left.inner.session, &domain, true, &child.title)?;
+            conn.execute("UPDATE pages SET title=?1,title_is_encrypted=1 WHERE id=?2", rusqlite::params![title, child.id])?;
+            Ok((root, child, domain))
+        }).unwrap();
+        left.inner.session.lock(&domain);
+        exchange_round(&left, &right);
+        right.inner.with_space(&space, |conn| {
+            let encrypted: bool = conn.query_row("SELECT is_encrypted FROM sections WHERE id=?1", [&domain], |row| row.get(0))?;
+            assert!(encrypted);
+            let stored: (String, bool, String) = conn.query_row("SELECT title,title_is_encrypted,content FROM pages WHERE id=?1", [&child.id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
+            assert!(stored.1);
+            assert_ne!(stored.0, "Private child");
+            assert_ne!(stored.2, "secret body");
+            let keys = crate::notes::sections_crypto::unlock_keys(conn, &domain, "password")?;
+            right.inner.session.insert(&domain, keys);
+            assert_eq!(crate::notes::reveal_content(&right.inner.session, &domain, true, &stored.2)?, "secret body");
+            assert_eq!(crate::notes::page_tree::path(conn, &right.inner.session, &child.id)?, "Private root / Private child");
+            assert!(crate::notes::page_tree::metadata(conn, &root.id).is_ok());
+            Ok(())
+        }).unwrap();
+    }
+
     #[test]
     fn pairing_attempts_are_serial_globally_bounded_expiring_and_single_use(){
         let owner=session();{let mut state=owner.state();state.code=Zeroizing::new("01234567".into());state.status.phase="discovering".into();state.status.attempts_left=5;}

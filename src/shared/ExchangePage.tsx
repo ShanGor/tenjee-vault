@@ -12,7 +12,7 @@ import { formatExchangeError } from "./exchangeError";
 type Summary = { records:number; deletions:number; conflicts:number; blobs:number };
 type Peer = { session:string; label:string; platform:string; addresses:string[]; mode:string; role:string };
 type NetworkOption = { name:string; vpn:boolean; addresses:string[] };
-type Result = { applied:number; unchanged:number; conflicts:number; pendingGroups:number; pendingBlobs:number; pendingLocalChanges:boolean };
+type Result = { applied:number; unchanged:number; conflicts:number; pendingGroups:number; pendingBlobs:number; pendingLocalChanges:boolean; pendingErrors?:string[] };
 type Status = { phase:string; code:string|null; expiresIn:number; attemptsLeft:number; addresses:string[]; peers:Peer[]; peer:Peer|null; localSummary:Summary|null; peerSummary:Summary|null; result:Result|null; message:string; transferredRecords:number; totalRecords:number; attachmentBytes:number; mode:string; files:FileProgress|null };
 const idle:Status = {phase:"idle",code:null,expiresIn:0,attemptsLeft:0,addresses:[],peers:[],peer:null,localSummary:null,peerSummary:null,result:null,message:"",transferredRecords:0,totalRecords:0,attachmentBytes:0,mode:"vault",files:null};
 
@@ -96,7 +96,8 @@ export function ExchangePage() {
       <button className="rounded border px-4 py-2" disabled={busy} onClick={()=>void action(()=>invoke("exchange_approve_cmd"))}>{ui("确认交换整个工作区")}</button>
     </section>}
     {status.mode!=="files" && status.result && <section className="space-y-2 rounded-lg border p-4"><h2 className="font-medium">{ui("交换结果")}</h2><p>{ui("已应用 {p0} 项；无需更新 {p1} 项；冲突 {p2} 项。",{p0:String(status.result.applied),p1:String(status.result.unchanged),p2:String(status.result.conflicts)})}</p>
-      {status.result.pendingGroups>0 && <p>{ui("{p0} 个依赖组仍待处理。请先解锁迁移旧标题或解决保护冲突，再重新配对。",{p0:String(status.result.pendingGroups)})}</p>}
+      {status.result.pendingGroups>0 && <p>{ui("{p0} 组内容尚未写入。交换进度会保留，可直接重新配对继续；无需为同步逐页解锁。若下方显示冲突，再选择要保留的版本。",{p0:String(status.result.pendingGroups)})}</p>}
+      {(status.result.pendingErrors ?? []).map((message,index)=><p className="rounded border border-amber-300 p-2 text-sm" role="alert" key={`${index}:${message}`}>{exchangeError(message)}</p>)}
       {status.result.pendingGroups>0 && <button className="rounded border p-2" disabled={busy || active} onClick={()=>{if(window.confirm(ui("清除尚未提交的交换文件？已提交的数据和原设备上的修改会保留，之后可重新配对。")))void action(()=>invoke("exchange_discard_pending_cmd"));}}>{ui("清除待处理的交换文件")}</button>}
       {status.result.pendingLocalChanges && <p>{ui("交换期间产生了新的本机修改，下次交换会继续同步。")}</p>}
     </section>}

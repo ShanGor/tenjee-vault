@@ -108,6 +108,9 @@ export const uiEnglish = {
   "接收方重新选择原保存位置并开启接收，发送方选择原批次并重新配对。": "The recipient chooses the original destination and starts Receive. The sender selects the original batch and pairs again.",
 
   "删除版本": "Deleted variant",
+  "页面显示失败": "This page could not be displayed",
+  "原始内容未被更改。可以重试，或切换到其他页面。": "The original content was not changed. Retry or switch to another page.",
+  "重试": "Retry",
   "受保护页面树": "Protected tree",
   "受保护密文版本": "Protected ciphertext variant",
   "记录 {p0} / {p1}；附件传输 {p2} MiB": "Records {p0} / {p1}; attachment transfer {p2} MiB",
@@ -157,7 +160,7 @@ export const uiEnglish = {
   "确认交换整个工作区": "Approve full workspace exchange",
   "交换结果": "Exchange result",
   "已应用 {p0} 项；无需更新 {p1} 项；冲突 {p2} 项。": "Applied {p0}; unchanged {p1}; conflicts {p2}.",
-  "{p0} 个依赖组仍待处理。请先解锁迁移旧标题或解决保护冲突，再重新配对。": "{p0} dependency groups remain pending. Unlock to migrate legacy titles or resolve protection conflicts, then pair again.",
+  "{p0} 组内容尚未写入。交换进度会保留，可直接重新配对继续；无需为同步逐页解锁。若下方显示冲突，再选择要保留的版本。": "{p0} groups have not been written. Exchange progress is retained; pair again to continue without unlocking pages one by one. If conflicts appear below, choose the versions to keep.",
   "交换期间产生了新的本机修改，下次交换会继续同步。": "New local changes were made during exchange. Exchange again to synchronize them.",
   "待解决的交换冲突": "Exchange conflicts",
   "选择要保留的版本。其他版本在解决前持续保留。受保护冲突只显示密文元数据。": "Choose the version to keep. Alternatives remain stored until resolved. Protected conflicts show only ciphertext metadata.",

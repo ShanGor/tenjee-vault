@@ -100,6 +100,9 @@ export default function EditorPage() {
   }, [spaceId, sectionLocked, unlocked]);
 
   const editor = useEditor({
+    // Route transitions may delay commit past TipTap's destruction timer.
+    // Create the instance in the mount effect, never during a speculative render.
+    immediatelyRender: false,
     editable: isEditing && !sectionLocked,
     extensions: buildEditorExtensions(spaceId),
     content: "",
@@ -249,9 +252,9 @@ export default function EditorPage() {
     setShowVersions(false);
   }, [editor, locked, sectionLocked]);
 
-  // 内容载入编辑器（页面加载/回滚后）
+  // 内容载入编辑器（页面加载/回滚后）。锁定转换期间不得在清空后重新载入明文。
   useEffect(() => {
-    if (!editor || !page) return;
+    if (!editor || !page || locked || sectionLocked) return;
     skipSave.current = true;
     let doc = undefined;
     try {
@@ -262,7 +265,7 @@ export default function EditorPage() {
     editor.commands.setContent(doc ?? { type: "doc", content: [{ type: "paragraph" }] });
     if (markdownMode && editorMode === "markdown") setMarkdownSource(markdownMode.serialize(editor.getJSON()));
     skipSave.current = false;
-  }, [editor, page, markdownMode]);
+  }, [editor, page, markdownMode, locked, sectionLocked]);
 
   // [[ 触发检测：光标前存在未闭合的 [[
   function detectLinkTrigger(ed: { state: any; view: any; isEditable: boolean }) {
@@ -526,7 +529,7 @@ function hasProtectedChildren(node: import("./api").SpacePageNode | null): boole
 
 function MarkdownPreview({ spaceId, sourceEditor }: { spaceId: string; sourceEditor: import("@tiptap/core").Editor }) {
   const content = useEditorState({ editor: sourceEditor, selector: ({ editor }) => editor.getJSON() });
-  const preview = useEditor({ editable: false, extensions: buildEditorExtensions(spaceId), content,
+  const preview = useEditor({ immediatelyRender: false, editable: false, extensions: buildEditorExtensions(spaceId), content,
     editorProps: { attributes: { class: "prose-editor" } },
   });
   useEffect(() => { preview?.commands.setContent(content, { emitUpdate: false }); }, [preview, content]);

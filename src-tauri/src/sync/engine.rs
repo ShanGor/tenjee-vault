@@ -10,7 +10,7 @@ use rusqlite::OptionalExtension;
 pub struct Summary { pub records: usize, pub deletions: usize, pub conflicts: usize, pub blobs: usize }
 #[derive(Clone,Default,Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
-pub struct ExchangeResult { pub applied: usize, pub unchanged: usize, pub conflicts: usize, pub pending_groups: usize, pub pending_blobs: usize, pub pending_local_changes: bool }
+pub struct ExchangeResult { pub applied: usize, pub unchanged: usize, pub conflicts: usize, pub pending_groups: usize, pub pending_blobs: usize, pub pending_local_changes: bool, #[serde(default)] pub pending_errors: Vec<String> }
 #[derive(Clone,Serialize,Deserialize)]
 pub struct Hello { pub protocol:String, pub replica:String, pub label:String, pub platform:String, pub schemas:Vec<u64>, pub summary:Summary, pub snapshot:String }
 pub struct Store { pub id:String, pub records:Vec<Record>, pub domains:Vec<Domain>, pub active_domains:usize }
@@ -499,6 +499,76 @@ fn validate_domain(domain:&Domain)->VaultResult<()> {
     }Ok(())
 }
 
+/// Older exchange snapshots could place a complete protected tree in an
+/// ordinary packet. Rebuild its atomic ciphertext domain before application;
+/// never weaken the ordinary-packet guard or require a password to replicate.
+fn legacy_domain(records:&[Record],section:&str)->VaultResult<Option<Domain>> {
+    // Tombstones carry no payload from which to recover domain membership.
+    // Leave such packets to the normal protected-packet validation path.
+    if records.iter().any(|record|record.deleted){return Ok(None);}
+    let pages=records.iter().filter(|record|record.entity=="pages" && record.payload.as_ref().and_then(|p|p["section_id"].as_str())==Some(section)).collect::<Vec<_>>();
+    let page_ids=pages.iter().filter_map(|record|record.payload.as_ref()?.get("id")?.as_str()).collect::<BTreeSet<_>>();
+    if page_ids.len()!=pages.len(){return Ok(None);}
+    let wrapper=records.iter().find(|record|record.entity=="sections" && record.payload.as_ref().and_then(|p|p["id"].as_str())==Some(section));
+    let Some(wrapper)=wrapper else{return Ok(None);};
+    let root=wrapper.payload.as_ref().and_then(|p|p["root_page_id"].as_str()).unwrap_or(section);
+    if !page_ids.contains(root){return Ok(None);}
+    let parents=pages.iter().filter_map(|record|{
+        let payload=record.payload.as_ref()?;
+        Some((payload.get("id")?.as_str()?.to_string(),payload.get("parent_page_id")?.as_str().map(str::to_string)))
+    }).collect::<BTreeMap<_,_>>();
+    if parents.len()!=pages.len(){return Ok(None);}
+    // A complete initial tree includes every protected page and its ancestry
+    // up to the protection root. Partial/ambiguous packets remain pending.
+    for id in &page_ids {
+        let mut current=id.to_string();let mut seen=BTreeSet::new();
+        while current!=root {
+            if !seen.insert(current.clone()){return Ok(None);}
+            let Some(parent)=parents.get(&current).cloned().flatten() else{return Ok(None);};
+            if !page_ids.contains(parent.as_str()){return Ok(None);}
+            current=parent;
+        }
+    }
+    let selected=records.iter().filter(|record|{
+        let Some(payload)=record.payload.as_ref() else{return false;};
+        match record.entity.as_str(){
+            "sections"=>payload["id"].as_str()==Some(section),
+            "pages"|"section_templates"=>payload["section_id"].as_str()==Some(section),
+            "page_versions"=>payload["page_id"].as_str().is_some_and(|id|page_ids.contains(id)),
+            "attachments"|"taggings"=>payload["entity_type"]=="page" && payload["entity_id"].as_str().is_some_and(|id|page_ids.contains(id)),
+            _=>false,
+        }
+    }).cloned().collect::<Vec<_>>();
+    let context=selected.iter().fold(Context::new(),|context,record|storage::union(&context,&record.context));
+    let payload=wrapper.payload.as_ref().ok_or_else(||invalid("Missing wrapping record"))?;
+    let key=serde_json::json!([payload["is_encrypted"],payload["kdf_salt"],payload["kdf_params"],payload["verifier"],payload["wrapped_dsk"]]);
+    let domain=Domain{id:format!("domain:{root}"),context,protected:true,key_identity:crate::blob_store::hash_hex(&json(&key)?),records:selected};
+    validate_domain(&domain)?;
+    Ok(Some(domain))
+}
+
+fn normalize_legacy_packet(packet:&IncomingPacket)->VaultResult<Vec<IncomingPacket>> {
+    if packet.meta.group.is_some() || !packet.meta.store.starts_with("space:") || !packet.records.iter().any(|record|record.entity=="sections" && record.payload.as_ref().is_some_and(|p|p["is_encrypted"].as_i64()==Some(1))){return Ok(vec![packet.clone()]);}
+    let original=packet.clone();
+    let mut remaining=packet.records.clone();
+    let mut recovered=Vec::new();
+    loop {
+        let section=remaining.iter().find(|record|record.entity=="sections" && record.payload.as_ref().is_some_and(|p|p["is_encrypted"].as_i64()==Some(1))).and_then(|record|record.payload.as_ref()?.get("id")?.as_str()).map(str::to_string);
+        let Some(section)=section else{break;};
+        let Some(domain)=legacy_domain(&remaining,&section)? else{return Ok(vec![original]);};
+        let hashes=domain.records.iter().map(storage::variant_id).collect::<VaultResult<BTreeSet<_>>>()?;
+        let mut kept=Vec::new();
+        for record in remaining {if !hashes.contains(&storage::variant_id(&record)?){kept.push(record);}}
+        remaining=kept;
+        let digest=crate::blob_store::hash_hex(&json(&domain)?);
+        recovered.push(IncomingPacket{meta:PacketMeta{id:format!("{}:legacy:{}",packet.meta.store,digest),store:packet.meta.store.clone(),group:Some(GroupMeta{id:domain.id.clone(),context:domain.context.clone(),protected:true,key_identity:domain.key_identity.clone(),eligible:true,alternative:false})},records:domain.records});
+    }
+    let mut result=Vec::new();
+    if !remaining.is_empty(){result.push(IncomingPacket{meta:packet.meta.clone(),records:remaining});}
+    result.extend(recovered);
+    Ok(result)
+}
+
 fn apply_packet(conn:&mut rusqlite::Connection,packet:&IncomingPacket)->VaultResult<storage::ApplyResult> {
     use rusqlite::params;
     for record in &packet.records {storage::validate(conn,record)?;}
@@ -574,7 +644,10 @@ fn apply_manifest(inner:&AppStateInner,directory:&std::path::Path,session:Option
         incorporate_space_contexts(meta,spaces)?;
         let mut result=ExchangeResult::default();
         let mut by_store:BTreeMap<String,Vec<IncomingPacket>>=BTreeMap::new();
-        for packet in manifest.packets {store_kind(&packet.meta.store)?;by_store.entry(packet.meta.store.clone()).or_default().push(packet);}
+        for packet in manifest.packets {
+            store_kind(&packet.meta.store)?;
+            for packet in normalize_legacy_packet(&packet)? {by_store.entry(packet.meta.store.clone()).or_default().push(packet);}
+        }
         // Space databases are migrated before registry materialization; paths
         // are constructed from validated UUIDs and never read from the peer.
         for id in by_store.keys().filter(|id|id.starts_with("space:")) {
@@ -640,7 +713,7 @@ fn apply_manifest(inner:&AppStateInner,directory:&std::path::Path,session:Option
             match applied {
                 Ok(r)=>{if let Err(error)=conn.execute_batch("RELEASE exchange_store;"){let _=conn.execute_batch("ROLLBACK TO exchange_store; RELEASE exchange_store;");return Err(error.into());}result.applied+=r.applied;result.conflicts+=r.conflicts;result.unchanged+=r.unchanged;
                     if id=="tasks" || id.starts_with("space:"){let files=blob_directory(inner,&id)?;for hash in &old_blobs{crate::blob_store::remove_if_unref(&files,conn,hash)?;}}}
-                Err(_)=>{conn.execute_batch("ROLLBACK TO exchange_store; RELEASE exchange_store;")?;result.pending_groups+=packets.len();}
+                Err(error)=>{conn.execute_batch("ROLLBACK TO exchange_store; RELEASE exchange_store;")?;result.pending_groups+=packets.len();result.pending_errors.push(serde_json::to_string(&error.payload()).unwrap_or_else(|_|error.to_string()));}
             }
         }
         Ok(result)
@@ -656,7 +729,7 @@ pub fn recover(inner:&AppStateInner)->VaultResult<ExchangeResult> {
         if !path.join("ready.json").is_file(){std::fs::remove_dir_all(path)?;continue;}
         if manifest_has_protection(&path)? {let cache=blob_cache(inner)?;std::fs::remove_dir_all(cache)?;}
         let result=apply_manifest(inner,&path,None)?;
-        total.applied+=result.applied;total.conflicts+=result.conflicts;total.pending_groups+=result.pending_groups;
+        total.applied+=result.applied;total.conflicts+=result.conflicts;total.pending_groups+=result.pending_groups;total.pending_errors.extend(result.pending_errors);
         if result.pending_groups==0 {std::fs::remove_dir_all(path)?;}
     }Ok(total)
 }
@@ -718,7 +791,7 @@ fn directory_size(path:&std::path::Path)->VaultResult<u64> {
 }
 fn manifest_has_protection(path:&std::path::Path)->VaultResult<bool> {
     let manifest:Manifest=serde_json::from_slice(&std::fs::read(path.join("ready.json"))?).map_err(|_|invalid("Invalid recovery manifest"))?;
-    Ok(manifest.packets.iter().any(|p|p.meta.group.is_some()))
+    Ok(manifest.packets.iter().any(|p|p.meta.group.is_some() || p.records.iter().any(|record|record.entity=="sections" && record.payload.as_ref().is_some_and(|payload|payload["is_encrypted"].as_i64()==Some(1)))))
 }
 
 fn scaffolding(record:&Record)->bool {
@@ -882,9 +955,44 @@ fn conversion_record_groups(inner:&AppStateInner,store:&str,records:&[Record],co
 }
 
 #[cfg(test)]
-mod visible_title_tests {
+mod protected_exchange_tests {
     use super::*;
     use crate::{db::migrate::{run_migrations, DbKind}, notes::{self, page_tree, pages, session::SessionManager}};
+
+    #[test]
+    fn legacy_ordinary_packet_recovers_a_complete_locked_tree() {
+        let mut source = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::connection::configure(&source).unwrap();
+        run_migrations(&mut source, DbKind::Space.migrations()).unwrap();
+        let session = SessionManager::new();
+        let files = tempfile::tempdir().unwrap();
+        let parent = page_tree::create(&source, &session, None, "Plain parent").unwrap();
+        let root = page_tree::create(&source, &session, Some(&parent.id), "Private root").unwrap();
+        let child = page_tree::create(&source, &session, Some(&root.id), "Private child").unwrap();
+        pages::save_page(&mut source, &session, &child.id, &child.title, "secret body").unwrap();
+        let section = page_tree::protect(&mut source, files.path(), &session, &root.id, "password", true).unwrap();
+        session.lock(&section);
+        let records = storage::inventory(&source).unwrap();
+        let domain = groups::inventory(&source, &records).unwrap().into_iter().find(|domain|domain.protected).unwrap();
+        let hashes = domain.records.iter().map(storage::variant_id).collect::<VaultResult<BTreeSet<_>>>().unwrap();
+        let ordinary = IncomingPacket { meta: PacketMeta { id: "space:test:ordinary".into(), store: "space:test".into(), group: None }, records: records.into_iter().filter(|record|hashes.contains(&storage::variant_id(record).unwrap()) || record.payload.as_ref().is_some_and(|payload|payload["id"]==parent.id)).collect() };
+        let recovered = normalize_legacy_packet(&ordinary).unwrap();
+        assert_eq!(recovered.len(),2);
+        assert!(recovered.iter().any(|packet|packet.meta.group.is_none()));
+        let protected = recovered.iter().find(|packet|packet.meta.group.is_some()).unwrap();
+        assert_eq!(protected.meta.group.as_ref().unwrap().id,domain.id);
+        assert_eq!(protected.records.len(),domain.records.len());
+        let mut target = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::connection::configure(&target).unwrap();
+        run_migrations(&mut target, DbKind::Space.migrations()).unwrap();
+        for packet in &recovered { apply_packet(&mut target,packet).unwrap(); }
+        let page_count:usize = target.query_row("SELECT COUNT(*) FROM pages WHERE id IN (?1,?2,?3)",rusqlite::params![parent.id,root.id,child.id],|row|row.get(0)).unwrap();
+        assert_eq!(page_count,3);
+        let target_session=SessionManager::new();
+        let keys=crate::notes::sections_crypto::unlock_keys(&target,&section,"password").unwrap();
+        target_session.insert(&section,keys);
+        assert_eq!(page_tree::path(&target,&target_session,&child.id).unwrap(),"Plain parent / Private root / Private child");
+    }
 
     #[test]
     fn protected_packets_allow_visible_titles_and_require_encrypted_content() {
@@ -911,6 +1019,15 @@ mod visible_title_tests {
         payload["title"] = serde_json::json!(legacy_title);
         payload["title_is_encrypted"] = serde_json::json!(1);
         validate_domain(&domain).unwrap();
+        let ordinary=IncomingPacket{meta:PacketMeta{id:"space:test:ordinary".into(),store:"space:test".into(),group:None},records:domain.records.clone()};
+        let recovered=normalize_legacy_packet(&ordinary).unwrap();
+        assert_eq!(recovered.len(),1);
+        assert!(recovered[0].meta.group.as_ref().is_some_and(|group|group.id==domain.id && group.eligible));
+        validate_domain(&Domain{id:recovered[0].meta.group.as_ref().unwrap().id.clone(),context:recovered[0].meta.group.as_ref().unwrap().context.clone(),protected:true,key_identity:recovered[0].meta.group.as_ref().unwrap().key_identity.clone(),records:recovered[0].records.clone()}).unwrap();
+        let mut incomplete=ordinary.clone();incomplete.records.retain(|record|record.entity!="pages");
+        let unchanged=normalize_legacy_packet(&incomplete).unwrap();
+        assert_eq!(unchanged.len(),1);
+        assert!(unchanged[0].meta.group.is_none());
         domain.records.iter_mut().find(|r| r.entity == "pages" && !r.deleted).unwrap().payload.as_mut().unwrap()["content"] = serde_json::json!("confidential body");
         assert!(validate_domain(&domain).is_err());
     }
