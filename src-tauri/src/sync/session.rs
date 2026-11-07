@@ -13,6 +13,13 @@ use zeroize::{Zeroize, Zeroizing};
 
 const SERVICE: &str = "_tenjee-vault._tcp.local.";
 
+// DNS address records belong to the hostname, not the service instance.
+// Automatic ports differ by address, so each listener needs its own hostname.
+fn listener_service(id: &str, index: usize, address: std::net::SocketAddr, properties: &[(&str, &str)]) -> mdns_sd::Result<ServiceInfo> {
+    let instance = format!("{id}-{index}");
+    ServiceInfo::new(SERVICE, &instance, &format!("tenjee-{instance}.local."), address.ip(), address.port(), properties)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Peer { pub session: String, pub label: String, pub platform: String, pub addresses: Vec<String>, #[serde(default)] pub mode:String, #[serde(default)] pub protocol:String, #[serde(default)] pub role:String }
 
@@ -225,9 +232,8 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
         for (index,listener) in session.listeners.lock().unwrap().iter().enumerate() {
             let address=listener.local_addr()?;
             if !interfaces.iter().any(|interface| interface.ip()==address.ip()) { continue; }
-            let instance=format!("{}-{}",id,index);
             let properties=[("session",id.as_str()),("label",label.as_str()),("platform",std::env::consts::OS),("version","1"),("mode",mode),("protocol",if session.file_intent.is_some(){auth::Protocol::Files.id()}else{auth::Protocol::Vault.id()}),("role",session.file_intent.as_ref().map(|i|i.role()).unwrap_or("vault")),("file_chunk",if session.file_intent.is_some(){"1048576"}else{"0"}),("file_entries",if session.file_intent.is_some(){"100000"}else{"0"})];
-            if let Ok(info)=ServiceInfo::new(SERVICE,&instance,&format!("tenjee-{}.local.",id),address.ip(),address.port(),&properties[..]) { let _=daemon.register(info); }
+            if let Ok(info)=listener_service(&id,index,address,&properties[..]) { let _=daemon.register(info); }
         }
         if let Ok(events)=daemon.browse(SERVICE) {
             let owner=session.clone();
@@ -243,6 +249,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
                                     let address=match ip { mdns_sd::ScopedIp::V4(v4)=>std::net::SocketAddr::new((*v4.addr()).into(),info.get_port()),mdns_sd::ScopedIp::V6(v6)=>std::net::SocketAddr::V6(std::net::SocketAddrV6::new(*v6.addr(),info.get_port(),0,v6.scope_id().index)),_=>continue };
                                     if owner.network.allows(address) { addresses.push(address.to_string()); }
                                 }
+                                addresses.sort_by_key(|address| (address.starts_with('['), address.clone()));
                                 let mut state=owner.state();
                                 if !addresses.is_empty() && state.peers.len()<100 { state.peers.insert(info.get_fullname().to_string(),Peer{session:id.into(),label:info.get_property_val_str("label").unwrap_or("Tenjee Vault").chars().take(64).collect(),platform:info.get_property_val_str("platform").unwrap_or("unknown").chars().take(32).collect(),mode:info.get_property_val_str("mode").unwrap_or("vault").chars().take(16).collect(),protocol:info.get_property_val_str("protocol").unwrap_or("").chars().take(96).collect(),role:info.get_property_val_str("role").unwrap_or("").chars().take(16).collect(),addresses}); }
                             }
@@ -414,6 +421,23 @@ pub async fn exchange_discard_pending_cmd(app:tauri::AppHandle)->VaultResult<()>
 mod tests {
     use super::*;
     use crate::db::{layout, startup};
+
+    #[test]
+    fn lan_advertisements_keep_each_address_with_its_listener_port() {
+        let endpoints = ["192.168.1.10:49152", "[fd11::10]:49153", "[fe80::10%4]:49154"];
+        let infos: Vec<_> = endpoints.iter().enumerate().map(|(index, endpoint)| {
+            listener_service("test-session", index, endpoint.parse().unwrap(), &[]).unwrap()
+        }).collect();
+        for (index, info) in infos.iter().enumerate() {
+            let endpoint: std::net::SocketAddr = endpoints[index].parse().unwrap();
+            assert_eq!(info.get_port(), endpoint.port());
+            assert_eq!(info.get_addresses().len(), 1);
+            assert!(info.get_addresses().contains(&endpoint.ip()));
+            for other in infos.iter().skip(index + 1) {
+                assert_ne!(info.get_hostname(), other.get_hostname(), "DNS must not merge addresses whose listeners use different ports");
+            }
+        }
+    }
 
     #[test]
     fn device_exchange_is_available_in_all_build_profiles() {
