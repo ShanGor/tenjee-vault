@@ -189,6 +189,8 @@ pub fn run() {
             sync::session::exchange_enter_cmd,
             sync::session::exchange_status_cmd,
             sync::session::exchange_connect_cmd,
+            sync::session::exchange_trusted_devices_cmd,
+            sync::session::exchange_revoke_trust_cmd,
             sync::session::exchange_approve_cmd,
             sync::session::exchange_stop_cmd,
             mobile::files::mobile_file_workspace_cmd,

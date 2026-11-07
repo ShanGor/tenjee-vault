@@ -54,7 +54,13 @@ No device is discoverable or accepts sync connections outside exchange mode. Sto
 
 The initial release synchronizes the complete workspace: spaces/page trees, note content and history, applicable templates, protected-domain metadata, tasks and lists, medication dose tasks, linked checkboxes, calendar events/exceptions/reminder definitions, tags, associations, and attachments. Existing IDs and cross-module links remain stable. Initial exchange inventories all content; later exchanges send only missing changes and attachment blobs. Independently created content on both devices is retained, including distinct default lists/spaces.
 
-Device settings stay local: appearance/navigation state, filesystem paths, permissions, delivered-notification history, pending local work queues, backup directories, exchange port preference, and unlocked sessions are excluded. Selective folder sharing, public Internet/cloud sync, permanent trust, and continuous background sync are outside this first release.
+Device settings stay local: appearance/navigation state, filesystem paths, permissions, delivered-notification history, pending local work queues, backup directories, exchange port preference, and unlocked sessions are excluded. Selective folder sharing, public Internet/cloud sync and continuous background sync are outside this first release.
+
+## Optional trusted devices
+
+For Vault exchange, pair with a code once, then select **Trust this device for future connections without a code** on both approval screens. Both machines must opt in. On later exchanges, select the saved target and use **Connect to trusted device**. Both devices must still enter exchange mode and approve the workspace scope. File exchange continues to require a fresh code.
+
+Trust uses a random device credential with the existing channel-bound PAKE and mutual key confirmation. The peer's replica identity must match the enrolled identity; its displayed name and address alone never authorize it. Credentials stay in a local installation file outside the backed-up vault, with owner-only permissions on Unix, and never enter frontend storage or replicated records. Removing **Trusted devices → Revoke trust** on either machine prevents subsequent trusted authentication; uncheck the trusted connection option to pair again with a code. Reinstalling or rotating the installation identity also requires pairing again.
 
 ## Offline edits, conflicts, and failures
 

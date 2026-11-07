@@ -1,5 +1,6 @@
 //! A provisional TLS connection is authorized only after channel-bound PAKE
-//! and role-separated mutual key confirmation. No workspace messages precede it.
+//! using a temporary code or an enrolled random device credential, followed by
+//! role-separated mutual key confirmation. No workspace messages precede it.
 use crate::error::{VaultError, VaultResult};
 use hmac::{Hmac, Mac};
 use opaque_ke::{
@@ -204,6 +205,8 @@ struct Greeting {
 }
 #[derive(Serialize, Deserialize)]
 struct PublicMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trust: Option<String>,
     message: Vec<u8>,
 }
 #[derive(Serialize, Deserialize)]
@@ -264,6 +267,13 @@ pub fn server_for(
     session: &str,
     code: &str,
 ) -> VaultResult<StreamOwned<ServerConnection, TcpStream>> {
+    server_with_trust(protocol, socket, identity, session, code, |_| Ok(None))
+}
+
+pub fn server_with_trust(
+    protocol: Protocol, socket: TcpStream, identity: &ServerIdentity, session: &str, code: &str,
+    lookup: impl FnOnce(&str) -> VaultResult<Option<Zeroizing<String>>>,
+) -> VaultResult<StreamOwned<ServerConnection, TcpStream>> {
     if code.len() != 8
         || !code.bytes().all(|byte| byte.is_ascii_digit())
         || uuid::Uuid::parse_str(session).is_err()
@@ -293,6 +303,12 @@ pub fn server_for(
         },
     )?;
     let binding = transcript(protocol, session, &identity.fingerprint, &exporter, &[], &[]);
+    let incoming: PublicMessage = receive(&mut stream, MAX_AUTH_FRAME)?;
+    let trusted = match incoming.trust.as_deref() {
+        Some(id) => Some(lookup(id)?.ok_or_else(||invalid("Device trust was removed or is unavailable; pair again with a code"))?),
+        None => None,
+    };
+    let code = trusted.as_deref().map(|s|s.as_str()).unwrap_or(code);
     let mut rng = rand::rngs::OsRng;
     // The temporary verifier is created locally. Registration is never exposed
     // on the network and neither the password file nor setup is persisted.
@@ -313,7 +329,6 @@ pub fn server_for(
         .map_err(|_| invalid("Pairing failed"))?;
     let _export_key = Zeroizing::new(registered.export_key);
     let password_file = ServerRegistration::<Suite>::finish(registered.message);
-    let incoming: PublicMessage = receive(&mut stream, MAX_AUTH_FRAME)?;
     let request = CredentialRequest::<Suite>::deserialize(&incoming.message)
         .map_err(|_| invalid("Invalid pairing message"))?;
     let login = ServerLogin::<Suite>::start(
@@ -332,6 +347,7 @@ pub fn server_for(
     send(
         &mut stream,
         &PublicMessage {
+            trust: None,
             message: message.clone(),
         },
     )?;
@@ -372,8 +388,17 @@ pub fn client_for(
     socket: TcpStream,
     code: &str,
 ) -> VaultResult<StreamOwned<ClientConnection, TcpStream>> {
-    if code.len() != 8 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+    client_with_trust(protocol, socket, code, None)
+}
+
+pub fn client_with_trust(protocol: Protocol, socket: TcpStream, code: &str, trust: Option<&str>) -> VaultResult<StreamOwned<ClientConnection, TcpStream>> {
+    if trust.is_none() && (code.len() != 8 || !code.bytes().all(|byte| byte.is_ascii_digit())) {
         return Err(invalid("Enter the eight-digit authentication code"));
+    }
+    if let Some(id)=trust {
+        if uuid::Uuid::parse_str(id).is_err() || code.len()!=64 || !code.bytes().all(|b|b.is_ascii_hexdigit()) {
+            return Err(invalid("Invalid trusted device credential; pair again with a code"));
+        }
     }
     configure_pairing_socket(&socket)?;
     let config =
@@ -419,6 +444,7 @@ pub fn client_for(
     send(
         &mut stream,
         &PublicMessage {
+            trust: trust.map(str::to_string),
             message: message.clone(),
         },
     )?;
@@ -437,6 +463,7 @@ pub fn client_for(
     send(
         &mut stream,
         &PublicMessage {
+            trust: None,
             message: result.message.serialize().to_vec(),
         },
     )?;
@@ -470,6 +497,31 @@ pub fn client(socket: TcpStream, code: &str) -> VaultResult<StreamOwned<ClientCo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trusted_pairing_requires_the_saved_secret_and_rejects_revocation() {
+        for outcome in ["success", "wrong-secret", "revoked"] {
+            let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address=listener.local_addr().unwrap();
+            let credential=crate::sync::trust::Credential::new();
+            let id=credential.id.clone();let secret=credential.secret.clone();
+            let worker=std::thread::spawn(move || {
+                let (socket,_)=listener.accept().unwrap();
+                let mut result=server_with_trust(Protocol::Vault,socket,&ServerIdentity::new().unwrap(),&uuid::Uuid::new_v4().to_string(),"01234567",|requested| {
+                    assert_eq!(requested,id);
+                    Ok(if outcome=="revoked" { None } else { Some(Zeroizing::new(secret)) })
+                });
+                if let Ok(stream)=&mut result { send(stream,&true).unwrap(); }
+                result.is_ok()
+            });
+            let socket=TcpStream::connect(address).unwrap();
+            let secret=if outcome=="wrong-secret" { "0".repeat(64) } else {credential.secret.clone()};
+            let mut result=client_with_trust(Protocol::Vault,socket,&secret,Some(&credential.id));
+            if let Ok(stream)=&mut result { assert!(receive::<bool>(stream,100).unwrap()); }
+            assert_eq!(result.is_ok(),outcome=="success");
+            assert_eq!(worker.join().unwrap(),outcome=="success");
+        }
+    }
+
     #[test]
     fn windows_style_accepted_socket_authenticates_and_exchanges_receipts() {
         for protocol in [Protocol::Vault, Protocol::Files] {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePreferences } from "../i18n";
 import { ui } from "../i18n/ui";
@@ -8,6 +8,8 @@ import { reconcileReminders } from "./mobileReminders";
 import { FileExchangePanel } from "./FileExchangePanel";
 import type { FileIntent, FileProgress } from "./fileExchange";
 import { formatExchangeError } from "./exchangeError";
+
+import { readExchangeHistory, rememberExchangeDevice, savedDeviceAddress } from "./exchangeHistory";
 
 type Summary = { records:number; deletions:number; conflicts:number; blobs:number };
 type Peer = { session:string; label:string; platform:string; addresses:string[]; mode:string; role:string };
@@ -28,7 +30,13 @@ export function ExchangePage() {
   const [networks,setNetworks]=useState<NetworkOption[]>([]);
   const [network,setNetwork]=useState("");
   const [port,setPort]=useState(()=>{try{const saved=localStorage.getItem("tenjee-exchange-port") ?? "";return /^\d+$/.test(saved) && Number(saved)>=1 && Number(saved)<=65535?saved:"";}catch{return "";}});
-  const [address,setAddress]=useState("");const [code,setCode]=useState("");
+  const [trustedDevices,setTrustedDevices]=useState<{peer:string;label:string}[]>([]);
+  const [useTrust,setUseTrust]=useState(true);
+  const [trustPeer,setTrustPeer]=useState(false);
+  const refreshTrust=()=>invoke<{peer:string;label:string}[]>("exchange_trusted_devices_cmd").then(setTrustedDevices);
+  const [history,setHistory]=useState(readExchangeHistory);
+  const [address,setAddress]=useState(()=>history[0]?.address ?? "");const [code,setCode]=useState("");
+  const pendingTarget=useRef<string|null>(null);
   const [busy,setBusy]=useState(false);const [error,setError]=useState("");
   const [conflicts,setConflicts]=useState<Conflict[]>([]);
   const [copyChoice,setCopyChoice]=useState<{conflict:Conflict;variant:string}|null>(null);
@@ -57,6 +65,25 @@ export function ExchangePage() {
     return()=>{alive=false;clearInterval(timer);document.removeEventListener("visibilitychange",suspended);void invoke("exchange_stop_cmd").catch(()=>undefined);};
   },[formatError]);
   useEffect(()=>{if(status.phase==="finished" && status.mode!=="files"){void refreshConflicts().catch(reason=>setError(exchangeError(reason)));void reconcileReminders().catch(()=>undefined);}},[status.phase]);
+  useEffect(()=>{
+    if (!pendingTarget.current || !status.peer) return;
+    const target=pendingTarget.current;
+    pendingTarget.current=null;
+    const peer=status.peer;
+    setHistory(previous=>rememberExchangeDevice(previous,{id:peer.session,label:peer.label,platform:peer.platform,address:target}));
+  },[status.peer]);
+  useEffect(()=>{
+    if(status.phase==="failed" || status.phase==="stopped") pendingTarget.current=null;
+    if(status.phase!=="discovering") return;
+    setAddress(current=>{
+      const saved=history.find(device=>device.address===current);
+      return saved?savedDeviceAddress(saved,status.peers):current;
+    });
+  },[status.phase,status.peers,history]);
+  const savedSelection=history.find(device=>address===savedDeviceAddress(device,status.peers));
+  const trustedTarget=mode==="vault" && useTrust && savedSelection && trustedDevices.some(device=>device.peer===savedSelection.id)?savedSelection.id:null;
+  useEffect(()=>{void refreshTrust().catch(reason=>setError(exchangeError(reason)));},[status.phase]);
+  useEffect(()=>{setTrustPeer(false);},[status.peer?.session]);
   async function action(work:()=>Promise<unknown>) {setBusy(true);setError("");try{await work();setStatus(await invoke<Status>("exchange_status_cmd"));}catch(reason){setError(exchangeError(reason));}finally{setBusy(false);}}
   async function enter(){if(mode==="vault")await flushPageSave();try{localStorage.setItem("tenjee-device-label",label.trim());localStorage.setItem("tenjee-exchange-port",port);}catch{/* optional device preferences */}setStatus(await invoke<Status>(mode==="files"?"file_exchange_enter_cmd":"exchange_enter_cmd",{label:label.trim(),interface:network || null,port:port===""?null:Number(port),...fileIntent}));}
   async function resolve(conflict:Conflict,variant:string){await action(async()=>{await invoke("exchange_resolve_cmd",{store:conflict.store,entity:conflict.entity,key:conflict.key,variant});await refreshConflicts();});}
@@ -76,6 +103,7 @@ export function ExchangePage() {
       {network && <p className="break-all text-xs text-neutral-600">{networks.find(option=>option.name===network)?.addresses.join(" · ")}</p>}
       <p className="text-sm text-neutral-600">{ui("使用 VPN 时，请在两台设备上选择对应网络。VPN 必须允许设备之间连接；附近设备发现仅用于局域网。")}</p>
       {!active && <button className="rounded border px-3 py-2" disabled={busy} onClick={()=>void action(refreshNetworks)}>{ui("刷新网络")}</button>}
+      {trustedDevices.length>0 && <details><summary>{ui("受信任的设备")}</summary><div className="mt-2 space-y-2">{trustedDevices.map(device=><div className="flex items-center justify-between gap-2" key={device.peer}><span className="break-all">{device.label}</span><button className="shrink-0 rounded border px-3 py-1" disabled={busy} onClick={()=>void action(async()=>{await invoke("exchange_revoke_trust_cmd",{peer:device.peer});await refreshTrust();})}>{ui("取消信任")}</button></div>)}</div></details>}
       <label className="block">{ui("交换端口（可选）")}<input className="mt-1 block w-full rounded border p-2" inputMode="numeric" placeholder={ui("自动分配")} maxLength={5} value={port} disabled={active || busy} aria-invalid={!validPort} onChange={event=>setPort(event.target.value)}/></label>
       <p className="text-sm text-neutral-600">{ui("留空自动分配，或输入 1–65535 的固定端口，方便使用主机名连接。两台设备的端口可不同，请使用对方显示的端口。")}</p>
       <p role="status" aria-live="polite">{phaseLabels[status.phase] ?? status.phase}</p>
@@ -86,15 +114,20 @@ export function ExchangePage() {
       {status.addresses.length>0 && status.phase==="discovering" && <details open><summary>{ui("本机交换地址")}</summary>{status.addresses.map(value=><p className="break-all font-mono text-sm" key={value}>{value}</p>)}</details>}
     </section>
     {status.phase==="discovering" && <section className="space-y-3 rounded-lg border p-4"><h2 className="font-medium">{ui("选择设备或输入主机名或 IP")}</h2>
+      {history.length>0 && <label className="block">{ui("历史交换设备")}<select className="mt-1 block w-full rounded border p-2" value={savedSelection?.id ?? ""} disabled={busy} onChange={event=>{const device=history.find(item=>item.id===event.target.value);setAddress(device?savedDeviceAddress(device,status.peers):"");setCode("");}}><option value="">{ui("输入新设备地址")}</option>{history.map(device=><option key={device.id} value={device.id}>{device.label} · {savedDeviceAddress(device,status.peers)}</option>)}</select></label>}
+      {history.length>0 && <p className="text-sm text-neutral-600">{ui("已记住上次连接的设备。地址或端口变化时，请选择附近设备或更新地址；每次仍需输入新的配对码。")}</p>}
       {status.peers.length===0 && <p className="text-sm">{ui("暂未发现设备。可手动输入对方的主机名或 IP 和端口；Tailscale 可使用 MagicDNS 名称。")}</p>}
-      {status.peers.map(peer=><button className={`block w-full rounded border p-3 text-left ${address===peer.addresses[0]?"border-blue-500":""}`} key={peer.session+peer.addresses.join()} onClick={()=>setAddress(peer.addresses[0])}>{peer.label} · {peer.platform} · {peer.mode === "files" ? ui("文件与文件夹") : ui("Vault 数据")}{peer.role === "send" ? ` · ${ui("发送文件")}` : peer.role === "receive" ? ` · ${ui("接收文件")}` : ""}<span className="block break-all text-xs">{peer.addresses[0]}</span></button>)}
+      {status.peers.map(peer=><button className={`block w-full rounded border p-3 text-left ${address===peer.addresses[0]?"border-blue-500":""}`} key={peer.session+peer.addresses.join()} onClick={()=>{setAddress(peer.addresses[0]);setCode("");}}>{peer.label} · {peer.platform} · {peer.mode === "files" ? ui("文件与文件夹") : ui("Vault 数据")}{peer.role === "send" ? ` · ${ui("发送文件")}` : peer.role === "receive" ? ` · ${ui("接收文件")}` : ""}<span className="block break-all text-xs">{peer.addresses[0]}</span></button>)}
       <label className="block">{ui("对方主机名或 IP 和端口")}<input className="mt-1 block w-full rounded border p-2" placeholder="my-laptop:49152" value={address} onChange={event=>setAddress(event.target.value)} autoCapitalize="none" spellCheck={false}/></label>
-      <label className="block">{ui("对方配对码")}<input className="mt-1 block w-full rounded border p-2 font-mono" inputMode="numeric" autoComplete="off" maxLength={8} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))}/></label>
-      <button className="rounded border px-4 py-2" disabled={busy || code.length!==8 || !address.trim()} onClick={()=>void action(async()=>{const entered=code;setCode("");await invoke("exchange_connect_cmd",{address:address.trim(),code:entered});})}>{ui("验证并查看交换范围")}</button>
+      {mode==="vault" && savedSelection && trustedDevices.some(device=>device.peer===savedSelection.id) && <label className="flex items-center gap-2"><input type="checkbox" checked={useTrust} onChange={event=>setUseTrust(event.target.checked)}/>{ui("使用设备信任连接，无需配对码")}</label>}
+      {!trustedTarget && <label className="block">{ui("对方配对码")}<input className="mt-1 block w-full rounded border p-2 font-mono" inputMode="numeric" autoComplete="off" maxLength={8} value={code} onChange={event=>setCode(event.target.value.replace(/\D/g,""))}/></label>}
+      <button className="rounded border px-4 py-2" disabled={busy || (!trustedTarget && code.length!==8) || !address.trim()} onClick={()=>void action(async()=>{const entered=code;setCode("");pendingTarget.current=address.trim();try{await invoke("exchange_connect_cmd",{address:address.trim(),code:trustedTarget?"":entered,trustedPeer:trustedTarget});}catch(reason){pendingTarget.current=null;throw reason;}})}>{trustedTarget?ui("连接受信任的设备"):ui("验证并查看交换范围")}</button>
     </section>}
     {status.phase==="approval" && status.mode!=="files" && <section className="space-y-3 rounded-lg border p-4"><h2 className="font-medium">{ui("确认与 {p0} 交换整个工作区",{p0:status.peer?.label ?? ""})}</h2><p className="text-sm">{ui("包括笔记、任务、日历、附件和删除记录。受保护内容仍需在本机输入其保护密码解锁。备份设置、通知权限和本机偏好不会交换。")}</p>
       <SummaryView title={ui("本机")} summary={status.localSummary}/><SummaryView title={ui("对方")} summary={status.peerSummary}/>
-      <button className="rounded border px-4 py-2" disabled={busy} onClick={()=>void action(()=>invoke("exchange_approve_cmd"))}>{ui("确认交换整个工作区")}</button>
+      <label className="flex items-center gap-2"><input type="checkbox" checked={trustPeer} disabled={busy} onChange={event=>setTrustPeer(event.target.checked)}/>{ui("信任此设备，以后无需配对码")}</label>
+      <p className="text-sm text-neutral-600">{ui("首次建立信任需在两台设备上勾选。以后仍需双方开启交换并确认范围；可随时取消信任。")}</p>
+      <button className="rounded border px-4 py-2" disabled={busy} onClick={()=>void action(()=>invoke("exchange_approve_cmd",{trust:trustPeer}))}>{ui("确认交换整个工作区")}</button>
     </section>}
     {status.mode!=="files" && status.result && <section className="space-y-2 rounded-lg border p-4"><h2 className="font-medium">{ui("交换结果")}</h2><p>{ui("已应用 {p0} 项；无需更新 {p1} 项；冲突 {p2} 项。",{p0:String(status.result.applied),p1:String(status.result.unchanged),p2:String(status.result.conflicts)})}</p>
       {status.result.pendingGroups>0 && <p>{ui("{p0} 组内容尚未写入。交换进度会保留，可直接重新配对继续；无需为同步逐页解锁。若下方显示冲突，再选择要保留的版本。",{p0:String(status.result.pendingGroups)})}</p>}

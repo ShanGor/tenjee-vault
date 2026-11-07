@@ -1,4 +1,4 @@
-use super::{auth, engine, network};
+use super::{auth, engine, network, trust};
 use crate::commands::AppState;
 use crate::error::{VaultError, VaultResult};
 use mdns_sd::{IfKind, ServiceDaemon, ServiceEvent, ServiceInfo};
@@ -36,7 +36,7 @@ pub struct Status {
 
 struct Mutable {
     status: Status, code: Zeroizing<String>, expires: Instant,
-    busy: bool, approved: bool, touched: Instant,
+    busy: bool, approved: bool, trust_peer: bool, trusted_peer: Option<String>, touched: Instant,
     peers: BTreeMap<String,Peer>,
 }
 
@@ -108,7 +108,7 @@ impl Session {
     fn claim_pairing(&self)->Option<Zeroizing<String>> {
         let mut state=self.state();
         if state.busy||state.status.attempts_left==0||state.code.is_empty()||Instant::now()>=state.expires{return None;}
-        state.busy=true;Some(Zeroizing::new(state.code.to_string()))
+        state.busy=true;state.trusted_peer=None;Some(Zeroizing::new(state.code.to_string()))
     }
     fn pairing_failed(&self, error: &VaultError)->bool {
         let exhausted={let mut state=self.state();state.busy=false;state.status.attempts_left=state.status.attempts_left.saturating_sub(1);state.status.message=serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Pairing failed".into());state.status.attempts_left==0};
@@ -154,6 +154,9 @@ impl Session {
         auth::send(stream,&local)?;
         let remote: engine::Hello=auth::receive(stream,32768)?;
         engine::validate_hello(&local,&remote)?;
+        if self.state().trusted_peer.as_ref().is_some_and(|peer|peer!=&remote.replica) {
+            return Err(VaultError::Validation("Trusted device identity changed; pair again with a code".into()));
+        }
         {
             let mut status=self.state();
             status.status.peer=Some(Peer{session:remote.replica.clone(),label:remote.label.clone(),platform:remote.platform.clone(),addresses:vec![],mode:"vault".into(),protocol:auth::Protocol::Vault.id().into(),role:String::new()});
@@ -162,9 +165,17 @@ impl Session {
         self.phase("approval","");
         self.wait_approval()?;
         let binding=if receiver { engine::approval_binding(&remote,&local)? } else { engine::approval_binding(&local,&remote)? };
-        auth::send(stream,&serde_json::json!({"approved":true,"scope":binding}))?;
+        let trust_requested=self.state().trust_peer;
+        let offered=if trust_requested && !receiver { Some(trust::Credential::new()) } else { None };
+        auth::send(stream,&serde_json::json!({"approved":true,"scope":binding,"trust":trust_requested,"trustCredential":offered}))?;
         let approval: serde_json::Value=auth::receive(stream,4096)?;
         if approval["approved"]!=true || approval["scope"]!=binding { return Err(VaultError::Validation("Peer did not approve the same full-workspace scope".into())); }
+        if trust_requested && approval["trust"]==true {
+            let credential=if receiver {
+                serde_json::from_value::<trust::Credential>(approval["trustCredential"].clone()).map_err(|_|VaultError::Validation("Invalid device trust offer".into()))?
+            } else { offered.ok_or_else(||VaultError::Validation("Missing device trust offer".into()))? };
+            trust::save(&inner.root,trust::TrustedDevice{peer:remote.replica.clone(),label:remote.label.clone(),credential})?;
+        }
         self.phase("exchanging","");
         let result=engine::exchange(inner,stream,&snapshot,&remote.replica,receiver,self)?;
         self.result(result);
@@ -215,7 +226,7 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
     let identity=auth::ServerIdentity::new()?;
     let file_root=if file_intent.is_some(){crate::file_exchange::journal::root(&app)?}else{std::path::PathBuf::new()};
     let mode=if file_intent.is_some(){"files"}else{"vault"};
-    let session=Arc::new(Session{id:id.clone(),network,file_intent,file_root,#[cfg(target_os="android")] app:app.clone(),#[cfg(target_os="android")] native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),mode:mode.into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
+    let session=Arc::new(Session{id:id.clone(),network,file_intent,file_root,#[cfg(target_os="android")] app:app.clone(),#[cfg(target_os="android")] native_token,inner:Mutex::new(Mutable{status:Status{session:id.clone(),phase:"discovering".into(),mode:mode.into(),label:label.clone(),addresses,attempts_left:5,..Status::default()},code,expires:Instant::now()+Duration::from_secs(300),busy:false,approved:false,trust_peer:false,trusted_peer:None,touched:Instant::now(),peers:BTreeMap::new()}),cancelled:AtomicBool::new(false),accepting:AtomicBool::new(true),sockets:Mutex::new(vec![]),listeners:Mutex::new(vec![]),discovery:Mutex::new(None),identity:Mutex::new(Some(identity)),workers:Mutex::new(vec![])});
     *session.listeners.lock().unwrap()=listeners;
     {
         let manager=app.state::<ExchangeManager>(); let mut current=manager.0.lock().unwrap();
@@ -278,7 +289,12 @@ fn start(app: tauri::AppHandle, label: String, native_token: String, interface: 
                         // Preserve authentication errors: a socket-mode or TLS
                         // failure must not be reduced to "check the code".
                         let authenticated=identity.ok_or_else(||VaultError::Validation("Temporary pairing identity is unavailable".into()))
-                            .and_then(|identity|auth::server_for(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,&identity,&owner.id,&code));
+                            .and_then(|identity|auth::server_with_trust(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,&identity,&owner.id,&code,|id| {
+                                if owner.file_intent.is_some() { return Ok(None); }
+                                let device=trust::lookup(&app.state::<AppState>().inner.root,id)?;
+                                owner.state().trusted_peer=device.as_ref().map(|d|d.peer.clone());
+                                Ok(device.map(|d|Zeroizing::new(d.credential.secret.clone())))
+                            }));
                         match authenticated {
                             Ok(mut stream)=>{
                                 if Instant::now()>=owner.state().expires || owner.check().is_err() { owner.cancel("Pairing code expired"); break; }
@@ -363,18 +379,24 @@ pub async fn exchange_stop_cmd(app: tauri::AppHandle) -> VaultResult<()> {
 }
 
 #[tauri::command]
-pub fn exchange_approve_cmd(app: tauri::AppHandle) -> VaultResult<()> {
+pub fn exchange_approve_cmd(app: tauri::AppHandle, trust: Option<bool>) -> VaultResult<()> {
     let session=app.state::<ExchangeManager>().current()?; session.check()?;
     let mut state=session.state();
     if state.status.phase!="approval" { return Err(VaultError::Validation("The exchange preview is not ready".into())); }
-    state.approved=true; state.touched=Instant::now(); Ok(())
+    state.trust_peer=trust.unwrap_or(false); state.approved=true; state.touched=Instant::now(); Ok(())
 }
 
 #[tauri::command]
-pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String) -> VaultResult<()> {
+pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String, trusted_peer: Option<String>) -> VaultResult<()> {
+    let credential=match trusted_peer {
+        Some(peer)=>Some(trust::for_peer(&app.state::<AppState>().inner.root,&peer)?.ok_or_else(||VaultError::Validation("Device trust was removed; pair again with a code".into()))?),
+        None=>None,
+    };
     let code=Zeroizing::new(code);
     let session=app.state::<ExchangeManager>().current()?; session.check()?;
+    if session.file_intent.is_some() && credential.is_some() { return Err(VaultError::Validation("Trusted pairing is currently available for Vault exchange".into())); }
     { let mut state=session.state(); if state.busy || state.status.phase!="discovering" { return Err(VaultError::Validation("Another peer is already pairing".into())); } state.busy=true; state.status.phase="pairing".into(); }
+    session.state().trusted_peer=credential.as_ref().map(|d|d.peer.clone());
     let owner=session.clone();
     session.workers.lock().unwrap().push(std::thread::spawn(move || {
         let result=(|| {
@@ -382,7 +404,7 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
             let addresses=owner.network.resolve(&address,||owner.check())?;
             let socket=owner.network.connect(&addresses,||owner.check())?;
             owner.register_socket(&socket)?;
-            let mut stream=auth::client_for(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,&code)?;
+            let mut stream=auth::client_with_trust(if owner.file_intent.is_some(){auth::Protocol::Files}else{auth::Protocol::Vault},socket,credential.as_ref().map(|d|d.credential.secret.as_str()).unwrap_or(&code),credential.as_ref().map(|d|d.credential.id.as_str()))?;
             owner.check()?;
             owner.authenticated();
             stream.sock.set_read_timeout(Some(Duration::from_secs(if owner.file_intent.is_some(){120}else{1800})))?;
@@ -394,6 +416,18 @@ pub fn exchange_connect_cmd(app: tauri::AppHandle, address: String, code: String
         if let Err(error)=result { owner.phase("failed",&serde_json::to_string(&error.payload()).unwrap_or_else(|_|"Exchange failed".into())); }
         owner.cancel("Exchange ended; pair again to resume");
     }));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn exchange_trusted_devices_cmd(app:tauri::AppHandle)->VaultResult<Vec<trust::DeviceSummary>> { trust::list(&app.state::<AppState>().inner.root) }
+#[tauri::command]
+pub fn exchange_revoke_trust_cmd(app:tauri::AppHandle,peer:String)->VaultResult<()> {
+    trust::revoke(&app.state::<AppState>().inner.root,&peer)?;
+    if let Ok(session)=app.state::<ExchangeManager>().current() {
+        let matches={let state=session.state();state.trusted_peer.as_ref()==Some(&peer) || state.status.peer.as_ref().is_some_and(|p|p.session==peer)};
+        if matches { session.cancel("Device trust removed; pair again with a code"); }
+    }
     Ok(())
 }
 
@@ -457,7 +491,7 @@ mod tests {
                 code: Zeroizing::new(String::new()),
                 expires: Instant::now() + Duration::from_secs(300),
                 busy: false,
-                approved: false,
+                approved: false, trust_peer:false, trusted_peer:None,
                 touched: Instant::now(),
                 peers: BTreeMap::new(),
             }),
@@ -479,7 +513,9 @@ mod tests {
         (directory, state)
     }
 
-    fn exchange_round(left: &AppState, right: &AppState) {
+    fn exchange_round(left: &AppState, right: &AppState) { exchange_round_with_trust(left,right,false,false); }
+
+    fn exchange_round_with_trust(left: &AppState, right: &AppState, left_trust:bool, right_trust:bool) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -531,8 +567,8 @@ mod tests {
             assert!(Instant::now() < deadline, "Peers did not reach approval");
             std::thread::sleep(Duration::from_millis(10));
         }
-        receiver.state().approved = true;
-        connector.state().approved = true;
+        { let mut state=receiver.state();state.trust_peer=right_trust;state.approved=true; }
+        { let mut state=connector.state();state.trust_peer=left_trust;state.approved=true; }
         let left_result = client.join().unwrap();
         let right_result = server.join().unwrap();
         assert!(left_result.is_ok(), "Connector failed: {left_result:?}");
@@ -541,6 +577,22 @@ mod tests {
         assert_eq!(connector.status().phase, "finished");
         assert_eq!(receiver.status().result.unwrap().pending_groups, 0);
         assert_eq!(connector.status().result.unwrap().pending_groups, 0);
+        if left_trust && right_trust {
+            let left_device=trust::for_peer(&left.inner.root,&connector.status().peer.unwrap().session).unwrap().unwrap();
+            let right_device=trust::for_peer(&right.inner.root,&receiver.status().peer.unwrap().session).unwrap().unwrap();
+            assert_eq!(left_device.credential.id,right_device.credential.id);
+            assert_eq!(left_device.credential.secret,right_device.credential.secret);
+        }
+    }
+
+    #[test]
+    fn trust_enrollment_requires_both_devices_to_opt_in() {
+        for (left_trust,right_trust) in [(true,false),(false,true),(true,true)] {
+            let (_left_dir,left)=workspace();let (_right_dir,right)=workspace();
+            exchange_round_with_trust(&left,&right,left_trust,right_trust);
+            assert_eq!(trust::list(&left.inner.root).unwrap().len(),usize::from(left_trust && right_trust));
+            assert_eq!(trust::list(&right.inner.root).unwrap().len(),usize::from(left_trust && right_trust));
+        }
     }
 
     #[test]

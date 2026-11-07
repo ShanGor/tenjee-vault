@@ -7,3 +7,5 @@ pub mod session;
 pub mod engine;
 mod files;
 pub mod conflicts;
+
+pub mod trust;

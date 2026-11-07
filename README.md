@@ -133,7 +133,7 @@ finite date range as Gregorian instances.
 Current source builds include an explicit **Find other devices and
 exchange** mode in both Debug and release builds for devices on a reachable LAN or private VPN, including Tailscale. Manual
 hostname/IP and port entry, network selection, and an optional fixed listening port support VPN use. Devices pair with a
-random, temporary authentication code, approve on both screens, and synchronize notes, tasks,
+random, temporary authentication code (or an optional previously enrolled device credential), approve on both screens, and synchronize notes, tasks,
 calendar, tags, and attachments in both directions over an authenticated encrypted connection.
 Offline edits and conflicts are preserved; protected page trees remain encrypted and still require
 their own passwords. No account or hosted sync service is required.
