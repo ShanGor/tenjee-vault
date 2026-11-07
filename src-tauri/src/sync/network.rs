@@ -61,23 +61,55 @@ fn eligible(interface: &Interface) -> bool {
 pub struct NetworkOption {
     pub name: String,
     pub vpn: bool,
+    pub label: String,
     pub addresses: Vec<String>,
 }
 
 pub fn options() -> VaultResult<Vec<NetworkOption>> {
+    Ok(options_from_interfaces(if_addrs::get_if_addrs()?, cfg!(target_os = "macos")))
+}
+
+fn options_from_interfaces(interfaces: Vec<Interface>, macos: bool) -> Vec<NetworkOption> {
     let mut options = BTreeMap::<String, NetworkOption>::new();
-    for interface in if_addrs::get_if_addrs()?.into_iter().filter(eligible) {
+    for interface in interfaces.into_iter().filter(eligible) {
         let option = options
             .entry(interface.name.clone())
             .or_insert_with(|| NetworkOption {
                 name: interface.name.clone(),
                 vpn: false,
+                label: interface.name.clone(),
                 addresses: Vec::new(),
             });
+        // CGNAT IPv4 alone is not proof of Tailscale; its IPv6 /48 is distinctive.
+        if interface.name.to_lowercase().contains("tailscale")
+            || matches!(interface.ip(), IpAddr::V6(ip) if ip.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0])
+        {
+            option.label = format!("Tailscale ({})", option.name);
+        }
         option.vpn |= vpn(&interface);
         option.addresses.push(interface.ip().to_string());
     }
-    Ok(options.into_values().collect())
+    options.into_values().filter_map(|mut option| {
+        if macos {
+            // Apple peer-to-peer adapters and link-local-only tunnels are system
+            // plumbing rather than useful exchange networks. Keep IPv6-only LANs.
+            if ["awdl", "llw", "lo", "anpi", "nan"].iter().any(|prefix| option.name.starts_with(prefix)) {
+                return None;
+            }
+            if option.vpn && option.addresses.iter().all(|address| {
+                matches!(address.parse::<IpAddr>(), Ok(IpAddr::V6(ip)) if ip.is_unicast_link_local())
+            }) {
+                return None;
+            }
+        }
+        option.addresses.sort_by_key(|address| match address.parse::<IpAddr>() {
+            Ok(IpAddr::V4(_)) => 0,
+            Ok(IpAddr::V6(ip)) if !ip.is_unicast_link_local() => 1,
+            _ => 2,
+        });
+        option.addresses.dedup();
+        Some(option)
+    }).collect()
 }
 
 /// Default mode retains same-link LAN restrictions. An explicitly selected interface
@@ -448,6 +480,29 @@ mod tests {
             #[cfg(windows)]
             adapter_name: name.into(),
         }
+    }
+
+    #[test]
+    fn macos_picker_hides_system_tunnels_and_labels_tailscale() {
+        let interfaces = vec![
+            interface("utun0", "fe80::1", "ffff:ffff:ffff:ffff::", 1, true),
+            interface("awdl0", "fe80::2", "ffff:ffff:ffff:ffff::", 2, false),
+            interface("utun7", "fe80::3", "ffff:ffff:ffff:ffff::", 3, true),
+            interface("utun7", "fd7a:115c:a1e0::123", "ffff:ffff:ffff:ffff::", 3, true),
+            interface("utun7", "100.108.26.22", "255.255.255.255", 3, true),
+            interface("en0", "fe80::4", "ffff:ffff:ffff:ffff::", 4, false),
+            interface("en0", "192.168.163.199", "255.255.255.0", 4, false),
+            interface("en1", "fe80::5", "ffff:ffff:ffff:ffff::", 5, false),
+            interface("utun8", "10.0.0.2", "255.255.255.0", 6, true),
+        ];
+        let options = options_from_interfaces(interfaces.clone(), true);
+        assert_eq!(options.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), vec!["en0", "en1", "utun7", "utun8"]);
+        let tailscale = options.iter().find(|o| o.name == "utun7").unwrap();
+        assert_eq!(tailscale.label, "Tailscale (utun7)");
+        assert_eq!(tailscale.addresses[0], "100.108.26.22");
+        assert_eq!(tailscale.addresses.len(), 3);
+        assert_eq!(options.iter().find(|o| o.name == "utun8").unwrap().label, "utun8");
+        assert_eq!(options_from_interfaces(interfaces, false).len(), 6);
     }
 
     fn fixture() -> Vec<Interface> {

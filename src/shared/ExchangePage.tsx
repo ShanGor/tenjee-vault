@@ -11,7 +11,7 @@ import { formatExchangeError } from "./exchangeError";
 
 type Summary = { records:number; deletions:number; conflicts:number; blobs:number };
 type Peer = { session:string; label:string; platform:string; addresses:string[]; mode:string; role:string };
-type NetworkOption = { name:string; vpn:boolean; addresses:string[] };
+type NetworkOption = { name:string; label?:string; vpn:boolean; addresses:string[] };
 type Result = { applied:number; unchanged:number; conflicts:number; pendingGroups:number; pendingBlobs:number; pendingLocalChanges:boolean; pendingErrors?:string[] };
 type Status = { phase:string; code:string|null; expiresIn:number; attemptsLeft:number; addresses:string[]; peers:Peer[]; peer:Peer|null; localSummary:Summary|null; peerSummary:Summary|null; result:Result|null; message:string; transferredRecords:number; totalRecords:number; attachmentBytes:number; mode:string; files:FileProgress|null };
 const idle:Status = {phase:"idle",code:null,expiresIn:0,attemptsLeft:0,addresses:[],peers:[],peer:null,localSummary:null,peerSummary:null,result:null,message:"",transferredRecords:0,totalRecords:0,attachmentBytes:0,mode:"vault",files:null};
@@ -72,7 +72,8 @@ export function ExchangePage() {
     {error && <p role="alert" className="rounded border border-red-300 p-3">{error}</p>}
     <section className="space-y-3 rounded-lg border p-4">
       <label className="block">{ui("本机名称")}<input className="mt-1 block w-full rounded border p-2" maxLength={64} value={label} disabled={active} onChange={event=>setLabel(event.target.value)}/></label>
-      <label className="block">{ui("交换网络")}<select className="mt-1 block w-full rounded border p-2" value={network} disabled={active || busy} onChange={event=>setNetwork(event.target.value)}><option value="">{ui("自动选择局域网")}</option>{networks.map(option=><option key={option.name} value={option.name}>{option.name}{option.vpn?" · VPN":""} · {option.addresses.join(", ")}</option>)}</select></label>
+      <label className="block">{ui("交换网络")}<select className="mt-1 block w-full rounded border p-2" value={network} disabled={active || busy} onChange={event=>setNetwork(event.target.value)}><option value="">{ui("自动选择局域网")}</option>{networks.map(option=><option key={option.name} value={option.name}>{option.label ?? option.name}{option.vpn?" · VPN":""} · {option.addresses[0]}</option>)}</select></label>
+      {network && <p className="break-all text-xs text-neutral-600">{networks.find(option=>option.name===network)?.addresses.join(" · ")}</p>}
       <p className="text-sm text-neutral-600">{ui("使用 VPN 时，请在两台设备上选择对应网络。VPN 必须允许设备之间连接；附近设备发现仅用于局域网。")}</p>
       {!active && <button className="rounded border px-3 py-2" disabled={busy} onClick={()=>void action(refreshNetworks)}>{ui("刷新网络")}</button>}
       <label className="block">{ui("交换端口（可选）")}<input className="mt-1 block w-full rounded border p-2" inputMode="numeric" placeholder={ui("自动分配")} maxLength={5} value={port} disabled={active || busy} aria-invalid={!validPort} onChange={event=>setPort(event.target.value)}/></label>
