@@ -23,7 +23,7 @@ export const useTaskStore = create<State>((set, get) => ({
     const selectedListId = get().selectedListId && lists.some((item) => item.id === get().selectedListId)
       ? get().selectedListId : lists[0]?.id ?? null;
     set({ lists, selectedListId });
-    if (selectedListId) set({ tree: await taskApi.listView(selectedListId) });
+    set({ tree: selectedListId ? await taskApi.listView(selectedListId) : [] });
   },
   async selectList(id) {
     set({ selectedListId: id, selectedTaskId: null, selected: new Set(), tree: await taskApi.listView(id) });

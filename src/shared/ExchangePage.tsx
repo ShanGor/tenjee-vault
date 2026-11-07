@@ -5,6 +5,7 @@ import { ui } from "../i18n/ui";
 import { useMobileDismiss } from "./useMobileDismiss";
 import { flushPageSave } from "../modules/notes/pageSave";
 import { reconcileReminders } from "./mobileReminders";
+import { refreshWorkspace } from "./refreshWorkspace";
 import { FileExchangePanel } from "./FileExchangePanel";
 import type { FileIntent, FileProgress } from "./fileExchange";
 import { formatExchangeError } from "./exchangeError";
@@ -64,7 +65,13 @@ export function ExchangePage() {
     document.addEventListener("visibilitychange",suspended);
     return()=>{alive=false;clearInterval(timer);document.removeEventListener("visibilitychange",suspended);void invoke("exchange_stop_cmd").catch(()=>undefined);};
   },[formatError]);
-  useEffect(()=>{if(status.phase==="finished" && status.mode!=="files"){void refreshConflicts().catch(reason=>setError(exchangeError(reason)));void reconcileReminders().catch(()=>undefined);}},[status.phase]);
+  useEffect(()=>{
+    if(status.mode==="files" || !["finished","failed","stopped"].includes(status.phase)) return;
+    // A stopped/failed exchange may already have committed some groups.
+    void refreshWorkspace().catch(reason=>setError(exchangeError(reason)));
+    void refreshConflicts().catch(reason=>setError(exchangeError(reason)));
+    void reconcileReminders().catch(()=>undefined);
+  },[status.phase,status.mode]);
   useEffect(()=>{
     if (!pendingTarget.current || !status.peer) return;
     const target=pendingTarget.current;
@@ -86,7 +93,7 @@ export function ExchangePage() {
   useEffect(()=>{setTrustPeer(false);},[status.peer?.session]);
   async function action(work:()=>Promise<unknown>) {setBusy(true);setError("");try{await work();setStatus(await invoke<Status>("exchange_status_cmd"));}catch(reason){setError(exchangeError(reason));}finally{setBusy(false);}}
   async function enter(){if(mode==="vault")await flushPageSave();try{localStorage.setItem("tenjee-device-label",label.trim());localStorage.setItem("tenjee-exchange-port",port);}catch{/* optional device preferences */}setStatus(await invoke<Status>(mode==="files"?"file_exchange_enter_cmd":"exchange_enter_cmd",{label:label.trim(),interface:network || null,port:port===""?null:Number(port),...fileIntent}));}
-  async function resolve(conflict:Conflict,variant:string){await action(async()=>{await invoke("exchange_resolve_cmd",{store:conflict.store,entity:conflict.entity,key:conflict.key,variant});await refreshConflicts();});}
+  async function resolve(conflict:Conflict,variant:string){await action(async()=>{await invoke("exchange_resolve_cmd",{store:conflict.store,entity:conflict.entity,key:conflict.key,variant});await refreshConflicts();await refreshWorkspace();await reconcileReminders();});}
   return <main className="h-full overflow-y-auto p-4 sm:p-6"><div className="mx-auto max-w-3xl space-y-5">
     <h1 className="text-xl font-semibold">{ui("寻找其他设备并交换")}</h1>
     <p className="text-sm text-neutral-600">{ui("将两台设备连接到可互通的局域网或 VPN（如 Tailscale），分别开启交换模式。仅在此页面保持前台时交换，离开或锁屏后需要重新配对。")}</p>
@@ -137,7 +144,7 @@ export function ExchangePage() {
     </section>}
     {copyChoice && <section className="space-y-3 rounded-lg border p-4" role="dialog" aria-label={ui("保留两个版本")}><h2 className="font-medium">{ui("保留两个版本")}</h2><p className="text-sm">{ui("所选版本会复制为新项目，原项目保留当前版本。页面和任务子树中的内部引用随副本更新。受保护子树需先在本机解锁。")}</p>
       {copyChoice.conflict.entity==="protected-domain" && <label className="block">{ui("所选受保护版本的密码（仅在本机使用）")}<input type="password" autoComplete="off" className="mt-1 block w-full rounded border p-2" value={copyPassword} onChange={event=>setCopyPassword(event.target.value)}/></label>}
-      <div className="flex gap-3"><button className="rounded border p-2" disabled={busy || (copyChoice.conflict.entity==="protected-domain" && !copyPassword)} onClick={()=>void action(async()=>{const choice=copyChoice;const password=copyPassword;setCopyPassword("");await invoke("exchange_keep_both_cmd",{store:choice.conflict.store,entity:choice.conflict.entity,key:choice.conflict.key,variant:choice.variant,password:password || null});setCopyChoice(null);await refreshConflicts();})}>{ui("保留两个版本")}</button><button className="rounded border p-2" disabled={busy} onClick={()=>{setCopyChoice(null);setCopyPassword("");}}>{ui("取消")}</button></div>
+      <div className="flex gap-3"><button className="rounded border p-2" disabled={busy || (copyChoice.conflict.entity==="protected-domain" && !copyPassword)} onClick={()=>void action(async()=>{const choice=copyChoice;const password=copyPassword;setCopyPassword("");await invoke("exchange_keep_both_cmd",{store:choice.conflict.store,entity:choice.conflict.entity,key:choice.conflict.key,variant:choice.variant,password:password || null});setCopyChoice(null);await refreshConflicts();await refreshWorkspace();await reconcileReminders();})}>{ui("保留两个版本")}</button><button className="rounded border p-2" disabled={busy} onClick={()=>{setCopyChoice(null);setCopyPassword("");}}>{ui("取消")}</button></div>
     </section>}
     {mode==="vault" && conflicts.length>0 && <section className="space-y-3"><h2 className="font-medium">{ui("待解决的交换冲突")}</h2><p className="text-sm">{ui("选择要保留的版本。其他版本在解决前持续保留。受保护冲突只显示密文元数据。")}</p>{conflicts.map(conflict=><article className="space-y-2 rounded-lg border p-4" key={conflict.id}><p className="break-all text-sm">{conflict.label} · {conflict.store}</p>{conflict.variants.map(variant=><div className="flex items-center justify-between gap-3" key={variant.id}><div className="min-w-0 break-words text-sm"><span>{variant.deleted?ui("删除版本"):variant.protected?(conflict.entity==="protected-domain"?`${ui("受保护页面树")} · ${variant.label}`:ui("受保护密文版本")):variant.label}</span>{variant.preview && <p className="mt-1 text-xs text-neutral-500">{variant.preview}</p>}</div><div className="flex shrink-0 flex-col gap-2 sm:flex-row"><button className="rounded border px-3 py-2" disabled={busy || active} onClick={()=>void resolve(conflict,variant.id)}>{ui("保留此版本")}</button><button className="rounded border px-3 py-2" disabled={busy || active || variant.deleted} onClick={()=>{setCopyChoice({conflict,variant:variant.id});setCopyPassword("");}}>{ui("保留两个版本")}</button></div></div>)}</article>)}</section>}
   </div></main>;
