@@ -118,6 +118,13 @@ Merged or headerless tables and tables with block content use editable HTML in
 Markdown mode, preserving `colspan`, `rowspan`, headers, and cell contents.
 Attachments, drawings, linked tasks, and special text styles remain references
 so switching modes preserves their data.
+The document and live preview use Trinity-inspired typography, quotes, tables, and
+code styling. Markdown also accepts trusted raw HTML, including styled spans,
+custom blocks, native disclosures, and inline SVG. HTML outside the rich-text
+schema is kept verbatim in the saved document; edit it in Markdown mode.
+Markdown and HTML exports preserve raw HTML verbatim. PDF exports include its text
+and supported document structure using the built-in PDF layout; arbitrary HTML CSS
+and SVG graphics are not reproduced.
 
 Notes can import UTF-8 Markdown, HTML, and plain text; pages and page trees export to Markdown,
 HTML, or PDF and can use the print view. Calendar import/export uses UTF-8 iCalendar (`.ics`);

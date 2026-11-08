@@ -433,6 +433,7 @@ fn remove_remote_images(html: &str) -> String {
 fn render_blocks(blocks: &[Block], out: &mut String) {
     for block in blocks {
         match block {
+            Block::RawHtml { html } => out.push_str(html),
             Block::Details {
                 open,
                 summary,
@@ -544,6 +545,7 @@ fn render_blocks(blocks: &[Block], out: &mut String) {
 fn render_inlines(inlines: &[Inline], out: &mut String) {
     for inline in inlines {
         match inline {
+            Inline::RawHtml { html } => out.push_str(html),
             Inline::HardBreak => out.push_str("<br>"),
             Inline::Link { href, text } => {
                 out.push_str("<a href=\"");

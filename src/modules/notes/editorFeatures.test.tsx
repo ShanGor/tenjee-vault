@@ -432,3 +432,42 @@ it("inserts uploaded image references at the Markdown selection after asynchrono
   expect(paste.defaultPrevented).toBe(true);
   expect(change).toHaveBeenCalledWith("before \n\nimage-reference\n\n after");
 });
+
+it("renders and persists HTML extensions, styles, SVG and nested inline HTML through Markdown and JSON", async () => {
+  const mode = createMarkdownMode(editor.markdown!);
+  const html = '<div class="callout" style="padding: 20px; color: purple"><h2>HTML title</h2><details open><summary>More</summary><p>Inside</p></details><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="red" /></svg></div>';
+  const source = `# Markdown title\n\n${html}\n\nText <span style="color: red">outer <span style="font-weight: bold">inner</span> tail</span> after.\n\n\`\`\`html\n<div>code only</div>\n\`\`\``;
+  act(() => editor.commands.setContent(mode.parse(source)));
+  toolbar();
+  expect(host.querySelector('.callout h2')?.textContent).toBe("HTML title");
+  expect(host.querySelector('.callout circle')?.getAttribute("fill")).toBe("red");
+  expect(host.querySelector('.callout details')?.hasAttribute("open")).toBe(true);
+  expect(host.querySelector('span.note-raw-html')?.textContent).toBe("outer inner tail");
+  expect(host.querySelectorAll('.note-raw-html')).toHaveLength(2);
+  const saved = JSON.parse(JSON.stringify(editor.getJSON()));
+  await act(async () => { editor.commands.setContent(saved); });
+  const reopened = createMarkdownMode(editor.markdown!).serialize(editor.getJSON());
+  expect(reopened).toContain(html);
+  expect(reopened).toContain('<span style="color: red">outer <span style="font-weight: bold">inner</span> tail</span>');
+  expect(reopened).toContain('```html\n<div>code only</div>\n```');
+  expect(mode.parse(reopened).content?.filter((node) => node.type !== "paragraph" || node.content?.length).map((node) => node.type)).toEqual(["heading", "rawHtmlBlock", "paragraph", "codeBlock"]);
+});
+
+it("preserves raw HTML inside Markdown lists without converting ordinary HTML tables or formatting to atoms", () => {
+  const mode = createMarkdownMode(editor.markdown!);
+  act(() => editor.commands.setContent(mode.parse('- Item <mark style="background: pink">highlight</mark>\n\n<table><tr><th>A</th></tr><tr><td>B</td></tr></table>\n\nPlain <strong>bold</strong>')));
+  expect(editor.getJSON().content?.map((node) => node.type)).toEqual(["bulletList", "table", "paragraph"]);
+  expect(mode.serialize(editor.getJSON())).toContain('<mark style="background: pink">highlight</mark>');
+  expect(editor.getJSON().content?.[2].content?.[1].marks).toEqual([{ type: "bold" }]);
+});
+
+it("keeps HTML containers together across blank lines and roundtrips their serialized HTML", () => {
+  const mode = createMarkdownMode(editor.markdown!);
+  const html = '<div style="display: grid; gap: 12px">\n<p>First</p>\n\n<div>Nested</div>\n<p>Last</p>\n</div>';
+  act(() => editor.commands.setContent(mode.parse(`${html}\n\nAfter`)));
+  expect(editor.getJSON().content?.[0]).toEqual({ type: "rawHtmlBlock", attrs: { html } });
+  const exported = editor.getHTML();
+  act(() => editor.commands.setContent(exported));
+  expect(editor.getJSON().content?.[0]).toEqual({ type: "rawHtmlBlock", attrs: { html } });
+  expect(editor.getText()).toContain("After");
+});

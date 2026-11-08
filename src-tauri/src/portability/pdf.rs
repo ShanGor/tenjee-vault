@@ -88,6 +88,11 @@ impl Canvas<'_> {
     }
     fn block(&mut self, block: &Block, depth: usize) -> VaultResult<()> {
         match block {
+            Block::RawHtml { html } => {
+                for child in super::html::parse(html)?.blocks {
+                    self.block(&child, depth)?;
+                }
+            }
             Block::Details {
                 summary, blocks, ..
             } => {
@@ -225,6 +230,7 @@ fn blocks_text(blocks: &[Block]) -> String {
     blocks
         .iter()
         .map(|block| match block {
+            Block::RawHtml { html } => html_text(html),
             Block::Details {
                 summary, blocks, ..
             } => format!("{} {}", inline_text(summary), blocks_text(blocks)),
@@ -259,6 +265,7 @@ fn inline_text(content: &[Inline]) -> String {
     content
         .iter()
         .map(|inline| match inline {
+            Inline::RawHtml { html } => html_text(html),
             Inline::HardBreak => "\n".to_owned(),
             Inline::Link { href, text } => format!("{text} ({href})"),
             Inline::Text { text, marks } => {
@@ -270,6 +277,12 @@ fn inline_text(content: &[Inline]) -> String {
         })
         .collect()
 }
+fn html_text(html: &str) -> String {
+    super::html::parse(html)
+        .map(|doc| blocks_text(&doc.blocks))
+        .unwrap_or_default()
+}
+
 fn wrap(input: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     for raw in input.lines() {
@@ -289,6 +302,25 @@ fn wrap(input: &str, width: usize) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::portability::document::{Resource, TableCell};
+
+    #[test]
+    fn includes_raw_html_text_in_pdf_layout() {
+        let document = PortableDocument {
+            blocks: vec![
+                Block::RawHtml {
+                    html: "<section><p>Block &amp; content</p></section>".into(),
+                },
+                Block::Paragraph {
+                    content: vec![Inline::RawHtml {
+                        html: "<span style=\"color:red\">Inline content</span>".into(),
+                    }],
+                },
+            ],
+        };
+        let text = blocks_text(&document.blocks);
+        assert!(text.contains("Block & content"));
+        assert!(text.contains("Inline content"));
+    }
 
     #[test]
     fn creates_a_paginated_searchable_pdf_for_chinese_and_english() {

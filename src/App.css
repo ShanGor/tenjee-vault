@@ -697,3 +697,26 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
   .calendar-view-actions select { width: 100%; min-width: 0; }
   .calendar-create { min-height: 44px; white-space: nowrap; }
 }
+
+/* Trinity-inspired reading rhythm, shared by notes and the live Markdown preview. */
+.prose-editor { font-size: 15.5px; line-height: 1.7; overflow-wrap: anywhere; }
+.prose-editor :is(h1, h2, h3, h4, h5, h6) { margin-top: 1.2em; margin-bottom: .5em; line-height: 1.3; letter-spacing: -.02em; }
+.prose-editor > :first-child { margin-top: 0; }
+.prose-editor p { margin: .35em 0; }
+.prose-editor li { margin: .2em 0; }
+.prose-editor li > p { margin: .15em 0; }
+.prose-editor blockquote { margin: .9em 0; padding: .75rem .9rem; border-radius: 0 10px 10px 0; }
+.prose-editor :not(pre) > code { padding: 2px 6px; border-radius: 6px; color: var(--color-accent); background: var(--color-blue-50); }
+.dark .prose-editor :not(pre) > code { background: var(--color-blue-950); }
+.prose-editor .note-code-block { margin: 1rem 0; border-radius: 10px; }
+.prose-editor .note-code-block pre { margin: 0; padding: 14px 16px; }
+.prose-editor table { margin: .9rem 0; font-size: .92rem; }
+.prose-editor :is(th, td) { padding: .45rem .6rem; }
+.prose-editor tr:nth-child(even) td { background: color-mix(in srgb, var(--color-canvas) 55%, transparent); }
+.prose-editor img { max-width: 100%; height: auto; border-radius: 8px; }
+.prose-editor .note-raw-html { max-width: 100%; }
+.prose-editor div.note-raw-html { margin: .9em 0; overflow-x: auto; }
+/* Native HTML disclosures keep their browser interaction inside raw fragments. */
+.prose-editor .note-raw-html summary { display: list-item; list-style: disclosure-closed; cursor: pointer; }
+.prose-editor .note-raw-html details[open] > summary { list-style: disclosure-open; }
+.prose-editor .note-raw-html summary::-webkit-details-marker { display: inline; }

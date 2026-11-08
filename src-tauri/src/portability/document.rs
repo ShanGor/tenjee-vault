@@ -16,6 +16,9 @@ pub struct PortableDocument {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Block {
+    RawHtml {
+        html: String,
+    },
     Paragraph {
         content: Vec<Inline>,
     },
@@ -97,6 +100,9 @@ impl Default for TableCell {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inline {
+    RawHtml {
+        html: String,
+    },
     Text {
         text: String,
         marks: Vec<TextMark>,
@@ -165,6 +171,9 @@ fn parse_block(value: &Value) -> VaultResult<Block> {
     let node = object(value, "TipTap 节点")?;
     let node_type = string_field(node, "type")?;
     match node_type {
+        "rawHtmlBlock" => Ok(Block::RawHtml {
+            html: required_string(attrs(node), "html", "HTML block")?,
+        }),
         "paragraph" => Ok(Block::Paragraph {
             content: parse_inlines(contents(node)?)?,
         }),
@@ -315,6 +324,9 @@ fn parse_inlines(nodes: &[Value]) -> VaultResult<Vec<Inline>> {
         .map(|value| {
             let node = object(value, "行内节点")?;
             match string_field(node, "type")? {
+                "rawHtmlInline" => Ok(Inline::RawHtml {
+                    html: required_string(attrs(node), "html", "HTML inline")?,
+                }),
                 "text" => {
                     let text = string_field(node, "text")?.to_string();
                     let marks = parse_marks(node.get("marks"))?;
@@ -402,6 +414,7 @@ fn attachment_from_attrs(attrs: &Map<String, Value>) -> VaultResult<Resource> {
 
 fn block_to_json(block: &Block) -> Value {
     match block {
+        Block::RawHtml { html } => json_node("rawHtmlBlock", Some(json!({"html": html})), vec![]),
         Block::Paragraph { content } => json_node("paragraph", None, inline_to_json(content)),
         Block::Blockquote { blocks } => json_node("blockquote", None, blocks_to_json(blocks)),
         Block::Details {
@@ -514,6 +527,7 @@ fn inline_to_json(content: &[Inline]) -> Vec<Value> {
                 }
                 Value::Object(node)
             }
+            Inline::RawHtml { html } => json!({"type": "rawHtmlInline", "attrs": {"html": html}}),
             Inline::HardBreak => json!({ "type": "hardBreak" }),
             Inline::Link { href, text } if href.starts_with("page://") => json!({
                 "type": "pageLink",

@@ -1,6 +1,7 @@
 import { ui } from "../../i18n/ui";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import { RawHtmlBlock, RawHtmlInline } from "./RawHtml";
 import TaskList from "@tiptap/extension-task-list";
 import { LinkedTaskItem } from "./LinkedTaskItem";
 import { Extension, generateHTML, type Extensions } from "@tiptap/core";
@@ -58,11 +59,16 @@ export function buildEditorExtensions(spaceId: string) {
     DetailsSummary,
     DetailsContent,
     Markdown,
+    RawHtmlBlock,
+    RawHtmlInline,
     TaskList,
     LinkedTaskItem.configure({ nested: true }),
     markdownTable((node) => {
       const html = generateHTML({ type: "doc", content: [node] }, extensions);
       const table = new DOMParser().parseFromString(html, "text/html").querySelector("table")!;
+      // Cell attributes carry the saved widths; these are generated layout styles.
+      table.removeAttribute("style");
+      table.querySelectorAll("colgroup").forEach((group) => group.remove());
       // Keep one row per line, without blank lines that terminate Markdown HTML blocks.
       return table.outerHTML.replace(/<tr\b/g, "\n  <tr").replace(/<\/tbody>/g, "\n</tbody>");
     }),

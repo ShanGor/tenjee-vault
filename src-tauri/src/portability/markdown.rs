@@ -420,6 +420,10 @@ fn inline_text<'a>(events: &[Event<'a>], cursor: &mut usize, stop: TagEnd) -> St
 fn render_blocks(blocks: &[Block], out: &mut String, depth: usize) {
     for block in blocks {
         match block {
+            Block::RawHtml { html } => {
+                out.push_str(html);
+                out.push_str("\n\n");
+            }
             Block::Details { .. } => {
                 // A single HTML block preserves nested content and the open state.
                 // Encode newlines so blank lines in code do not terminate the HTML block.
@@ -546,6 +550,7 @@ fn render_blocks_inline(blocks: &[Block], out: &mut String) {
 fn render_inlines(content: &[Inline], out: &mut String) {
     for inline in content {
         match inline {
+            Inline::RawHtml { html } => out.push_str(html),
             Inline::HardBreak => out.push_str("  \n"),
             Inline::Link { href, text } => {
                 out.push('[');

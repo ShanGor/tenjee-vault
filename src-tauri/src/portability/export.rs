@@ -363,6 +363,7 @@ fn rewrite_page_links(
             Block::Image { .. }
             | Block::Attachment { .. }
             | Block::CodeBlock { .. }
+            | Block::RawHtml { .. }
             | Block::HorizontalRule => {}
         }
     }
@@ -640,6 +641,57 @@ mod tests {
     use crate::db::connection::configure;
     use crate::db::migrate::{run_migrations, DbKind};
     use crate::notes::hierarchy;
+
+    #[test]
+    fn exports_saved_raw_html_in_all_formats() {
+        let root = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
+        configure(&conn).unwrap();
+        run_migrations(&mut conn, DbKind::Space.migrations()).unwrap();
+        let notebook = hierarchy::create_notebook(&conn, "n", None).unwrap();
+        let section = hierarchy::create_section(&conn, &notebook.id, None, "s", None).unwrap();
+        let page = hierarchy::create_page(&conn, &section.id, None, "HTML").unwrap();
+        let session = SessionManager::new();
+        let block = "<div style=\"color: purple\"><p>Block content</p><svg viewBox=\"0 0 10 10\"><circle r=\"4\" /></svg></div>";
+        let inline = "<span style=\"color: red\">Inline content</span>";
+        let source = serde_json::json!({"type":"doc","content":[
+            {"type":"rawHtmlBlock","attrs":{"html":block}},
+            {"type":"paragraph","content":[{"type":"rawHtmlInline","attrs":{"html":inline}}]}
+        ]});
+        let document = super::super::document::PortableDocument::from_tiptap_json(&source).unwrap();
+        let restored = document.to_tiptap_json();
+        assert_eq!(restored["content"][0]["attrs"]["html"], block);
+        assert_eq!(
+            restored["content"][1]["content"][0]["attrs"]["html"],
+            inline
+        );
+        pages::save_page(&mut conn, &session, &page.id, "HTML", &source.to_string()).unwrap();
+        for (format, file) in [
+            (NoteExportFormat::Markdown, "raw.md"),
+            (NoteExportFormat::Html, "raw.html"),
+            (NoteExportFormat::Pdf, "raw.pdf"),
+        ] {
+            export_page(
+                &conn,
+                root.path(),
+                &session,
+                &page.id,
+                format,
+                root.path(),
+                file,
+                false,
+            )
+            .unwrap();
+            let bytes = std::fs::read(root.path().join(file)).unwrap();
+            if file.ends_with("pdf") {
+                assert!(bytes.starts_with(b"%PDF-"));
+            } else {
+                let text = String::from_utf8(bytes).unwrap();
+                assert!(text.contains(block));
+                assert!(text.contains(inline));
+            }
+        }
+    }
 
     #[test]
     fn exports_page_only_to_selected_safe_destination() {
