@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./assets/fonts/fonts.css";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -24,6 +25,9 @@
 
 
 :root {
+  --font-note-body: "Source Sans 3", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --font-note-heading: "Fraunces", "Noto Serif CJK SC", "Songti SC", "SimSun", serif;
+  --font-note-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   color-scheme: light;
   --color-canvas: #f7f8f5;
@@ -74,7 +78,6 @@ body,
 .prose-editor {
   outline: none;
   min-height: 60vh;
-  line-height: 1.7;
 }
 
 .prose-editor p.is-editor-empty:first-child::before {
@@ -366,7 +369,7 @@ select { max-width: 100%; }
 .editor-heading input { border-radius: 0 !important; background: transparent !important; padding: 0 !important; }
 .editor-heading button { font-size: 11px; }
 [data-print-document] { background: var(--color-surface); }
-.prose-editor { color: var(--color-text); font-size: 15px; line-height: 1.85; }
+.prose-editor { color: var(--color-text); }
 .module-tasks main { background: var(--color-surface); }
 .module-tasks main > header, .module-tasks main > div { padding-left: 24px; padding-right: 24px; }
 .module-tasks main .group { min-height: 44px; border-bottom: 1px solid var(--color-border); border-radius: 0; }
@@ -506,7 +509,7 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
 .editor-link-dialog .editor-link-save { background: var(--color-accent); color: var(--color-accent-contrast); border-color: var(--color-accent); }
 @media print { .editor-link-context, .editor-link-overlay { display: none !important; } }
 .page-document-content { width: 100%; padding: 16px var(--page-gutter) 32px; }
-.page-document-content .prose-editor { min-height: 0; line-height: 1.75; overflow-wrap: anywhere; }
+.page-document-content .prose-editor { min-height: 0; }
 .page-editor[data-editing="true"] .page-document-content .prose-editor { min-height: 16rem; }
 .page-document-content .prose-editor > :first-child { margin-top: 0; }
 .page-document-content .prose-editor > :last-child { margin-bottom: 0; }
@@ -519,7 +522,7 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
 
 .page-mode-switch button[aria-pressed="true"] { background: var(--color-blue-50); color: var(--color-accent); }
 .page-markdown-content { display: flex; min-height: 100%; flex-direction: column; }
-.markdown-source { display: block; width: 100%; min-height: 24rem; flex: 1; resize: vertical; border: 0; outline: none; background: transparent; color: var(--color-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.75; tab-size: 2; }
+.markdown-source { display: block; width: 100%; min-height: 24rem; flex: 1; resize: vertical; border: 0; outline: none; background: transparent; color: var(--color-text); font-family: var(--font-note-mono); font-size: 14px; line-height: 1.85; tab-size: 2; }
 .markdown-workspace { display: grid; grid-template-columns: minmax(0, 1fr); }
 .markdown-source-pane, .markdown-preview-pane { min-width: 0; }
 .markdown-preview-pane { border-top: 1px solid var(--color-border); }
@@ -698,20 +701,34 @@ summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2p
   .calendar-create { min-height: 44px; white-space: nowrap; }
 }
 
-/* Trinity-inspired reading rhythm, shared by notes and the live Markdown preview. */
-.prose-editor { font-size: 15.5px; line-height: 1.7; overflow-wrap: anywhere; }
-.prose-editor :is(h1, h2, h3, h4, h5, h6) { margin-top: 1.2em; margin-bottom: .5em; line-height: 1.3; letter-spacing: -.02em; }
+/* sam-blog typography, shared by notes and the live Markdown preview. */
+.prose-editor { font-family: var(--font-note-body); font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
+.prose-editor :is(h1, h2, h3, h4, h5, h6) { font-family: var(--font-note-heading); font-weight: 600; margin-top: 1.6em; margin-bottom: .6em; line-height: 1.35; letter-spacing: .01em; text-wrap: pretty; }
+.prose-editor h1 { font-size: 2.1em; }
+.prose-editor h2 { font-size: 1.7em; }
+.prose-editor h3 { font-size: 1.35em; }
+.prose-editor h4 { font-size: 1.15em; }
+.prose-editor h5 { font-size: 1.05em; }
+.prose-editor h6 { font-size: 1em; }
+.editor-heading :is(h1, input) { font-family: var(--font-note-heading); font-size: 28px; font-weight: 600; line-height: 1.35; letter-spacing: .01em; }
 .prose-editor > :first-child { margin-top: 0; }
-.prose-editor p { margin: .35em 0; }
-.prose-editor li { margin: .2em 0; }
-.prose-editor li > p { margin: .15em 0; }
-.prose-editor blockquote { margin: .9em 0; padding: .75rem .9rem; border-radius: 0 10px 10px 0; }
+.prose-editor p { margin: .9em 0; }
+.prose-editor :is(ul, ol) { margin: .9em 0; }
+.prose-editor li { margin: .3em 0; }
+.prose-editor li > p { margin: .3em 0; }
+.prose-editor li > :is(ul, ol) { margin: .35em 0; }
+.prose-editor :is(blockquote, td, th) > :first-child { margin-top: 0; }
+.prose-editor :is(blockquote, td, th) > :last-child { margin-bottom: 0; }
+.prose-editor blockquote { margin: 1.2em 0; padding: .85rem 1rem; border-radius: 0 12px 12px 0; }
+.prose-editor hr { margin: 2em 0; }
+.prose-editor a { text-underline-offset: .18em; text-decoration-thickness: 1px; }
+.prose-editor pre, .prose-editor :not(pre) > code { font-family: var(--font-note-mono); }
 .prose-editor :not(pre) > code { padding: 2px 6px; border-radius: 6px; color: var(--color-accent); background: var(--color-blue-50); }
 .dark .prose-editor :not(pre) > code { background: var(--color-blue-950); }
 .prose-editor .note-code-block { margin: 1rem 0; border-radius: 10px; }
 .prose-editor .note-code-block pre { margin: 0; padding: 14px 16px; }
-.prose-editor table { margin: .9rem 0; font-size: .92rem; }
-.prose-editor :is(th, td) { padding: .45rem .6rem; }
+.prose-editor table { margin: 1.4rem 0; font-size: .95em; }
+.prose-editor :is(th, td) { padding: .65rem .75rem; text-align: left; }
 .prose-editor tr:nth-child(even) td { background: color-mix(in srgb, var(--color-canvas) 55%, transparent); }
 .prose-editor img { max-width: 100%; height: auto; border-radius: 8px; }
 .prose-editor .note-raw-html { max-width: 100%; }
